@@ -1,5 +1,10 @@
 opendental:
   base-url: ${OPENDENTAL_BASE_URL:http://localhost:30223/api/v1}
+  # Open Dental rejects every request that has no Authorization header with
+  # 400 "Malformed API request.". Expected format:
+  #   ODFHIR <DeveloperKey>/<CustomerKey>
+  # Leave empty only when the target Open Dental instance does not require a key.
+  api-key: ${OPENDENTAL_API_KEY:}
   clinics:
     default-clinic-code: ${DEFAULT_CLINIC_CODE:CLINIC_A}
 

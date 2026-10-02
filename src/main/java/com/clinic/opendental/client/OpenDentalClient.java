@@ -169,11 +169,17 @@ public class OpenDentalClient {
     }
 
     public PatientResponse createPatient(CreatePatientRequest request, String clinicBaseUrl) {
+        return createPatient(request, clinicBaseUrl, null);
+    }
+
+    public PatientResponse createPatient(CreatePatientRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<CreatePatientRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/patients",
-                request,
-                PatientResponse.class);
+                HttpMethod.POST,
+                entity,
+                PatientResponse.class).getBody();
     }
 
     public PatientResponse updatePatient(Long patNum, UpdatePatientRequest request) {
@@ -181,8 +187,12 @@ public class OpenDentalClient {
     }
 
     public PatientResponse updatePatient(Long patNum, UpdatePatientRequest request, String clinicBaseUrl) {
+        return updatePatient(patNum, request, clinicBaseUrl, null);
+    }
+
+    public PatientResponse updatePatient(Long patNum, UpdatePatientRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<UpdatePatientRequest> entity = new HttpEntity<>(request);
+        HttpEntity<UpdatePatientRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         ResponseEntity<PatientResponse> response = restTemplate.exchange(
                 url + "/patients/" + patNum,
                 HttpMethod.PUT,

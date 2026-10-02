@@ -140,13 +140,13 @@ public class PatientServiceImpl implements PatientService {
     @Transactional
     public PatientResponse createPatient(CreatePatientRequest request) {
         try {
-            PatientResponse response = client.createPatient(request);
+            PatientResponse response = client.createPatient(request, null, resolveActiveApiKey());
             savePatientToDb(response);
             return response;
         } catch (Exception e) {
             log.error("Failed to create patient via OpenDental API: {}", e.getMessage());
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create patient: " + e.getMessage());
+                    "Failed to create patient: " + e.getMessage() + openDentalAuthHint(e));
         }
     }
 
@@ -154,14 +154,44 @@ public class PatientServiceImpl implements PatientService {
     @Transactional
     public PatientResponse updatePatient(Long patNum, UpdatePatientRequest request) {
         try {
-            PatientResponse response = client.updatePatient(patNum, request);
+            PatientResponse response = client.updatePatient(patNum, request, null, resolveActiveApiKey());
             savePatientToDb(response);
             return response;
         } catch (Exception e) {
             log.error("Failed to update patient via OpenDental API: {}", e.getMessage());
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to update patient: " + e.getMessage());
+                    "Failed to update patient: " + e.getMessage() + openDentalAuthHint(e));
         }
+    }
+
+    /**
+     * Open Dental authenticates every API call with the active clinic's key. A blank
+     * key falls back to the globally configured {@code opendental.api-key}, which the
+     * RestTemplate applies when the request has no Authorization header yet.
+     */
+    private String resolveActiveApiKey() {
+        return clinicRepository.findByIsActiveTrue().stream()
+                .map(Clinic::getApiKey)
+                .filter(key -> key != null && !key.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * The upstream message is otherwise opaque ("400 Bad Request: Malformed API
+     * request."), so point at the credential that Open Dental is complaining about.
+     */
+    private String openDentalAuthHint(Exception e) {
+        String message = String.valueOf(e.getMessage());
+        boolean credentialProblem = message.contains("401")
+                || message.contains("Not Authorized")
+                || message.contains("Malformed API request")
+                || message.contains("Authorization");
+        return credentialProblem
+                ? " Open Dental rejected the API credentials. Set OPENDENTAL_API_KEY (or the active clinic's api_key)"
+                + " to a key created in Open Dental under Setup > Advanced Setup > API, formatted as"
+                + " \"ODFHIR <DeveloperKey>/<CustomerKey>\"."
+                : "";
     }
 
     // ========== Database sync helpers ==========
