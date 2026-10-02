@@ -2,3 +2,4 @@
 - [Allergy navigation](allergy-navigation.md) — the user does not want Allergies in the main dashboard menu.
 - [Patients & Families scope](patient-family-scope.md) — requested additions are UI-only, excluding the three existing allergy/disease-definition screens.
 - [Test report conflict checks](merge-report-markers.md) — Spring Boot banner separators can cause false conflict-marker warnings in generated XML reports.
+- [API proxy boundaries](api-proxy-boundaries.md) — Keep dashboard proxy requests same-origin and distinguish the Java API docs from its separate Open Dental upstream.
