@@ -1,11 +1,11 @@
 // Backend bridge for the SmileOS dashboard.
 //
-// Reads the Spring Boot backend (default http://localhost:8080, override with
-// VITE_BACKEND_URL) which proxies the Open Dental API. The backend serialises
+// Reads the Spring Boot backend through the same-origin development proxy,
+// or VITE_BACKEND_URL when explicitly set. The backend serialises
 // with a global SNAKE_CASE strategy but Open Dental itself emits PascalCase,
 // so every mapper below accepts snake_case, camelCase and PascalCase keys.
 
-export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:8080';
+export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '';
 
 export function backendAvailable(): boolean {
   return (import.meta.env.VITE_BACKEND_OFFLINE as string | undefined) !== '1';

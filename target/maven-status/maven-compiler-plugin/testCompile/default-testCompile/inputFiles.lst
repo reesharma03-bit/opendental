@@ -1,7 +1,7 @@
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\controller\ApiPatientsControllerTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\controller\OpenDentalWebhookControllerTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\dto\appointment\AppointmentResponseDeserializationTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\dto\patient\PatientResponseDeserializationTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\service\Impl\ReconciliationSyncServiceDocumentsTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\service\Impl\ReconciliationSyncServicePatFieldsTest.java
-c:\0000_Mahesh_apps\000000000_Hamza_Apo-new\src\test\java\com\clinic\opendental\service\Impl\ReconciliationSyncServicePatientsTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/controller/ApiPatientsControllerTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/controller/OpenDentalWebhookControllerTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/dto/appointment/AppointmentResponseDeserializationTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/dto/patient/PatientResponseDeserializationTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServiceDocumentsTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServicePatFieldsTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServicePatientsTest.java
