@@ -12,7 +12,12 @@ import {
 import AppointmentsScreen from './AppointmentsScreen';
 import ApiCatalogScreen from './ApiCatalogScreen';
 import AllergiesScreen from './AllergiesScreen';
+import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
+import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsScreen from './PatientsScreen';
+import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
+import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
+import { usePatientsFamilyPreviews } from './patients-families/usePatientsFamilyPreviews';
 import ResourceScreen from './ResourceScreen';
 import { resourceMap } from './lib/resourceMeta';
 
@@ -190,6 +195,9 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState(initialResource ? 'API Catalog' : 'Dashboard');
   const [selectedApiResource, setSelectedApiResource] = useState<string | null>(initialResource);
+  const { records: previewRecords, dispatch: dispatchPreview } = usePatientsFamilyPreviews();
+  const previewDefinition = selectedApiResource
+    ? patientFamilyPreviewDefinitions[selectedApiResource] : undefined;
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
@@ -359,6 +367,26 @@ function App() {
         {activeNav === 'API Catalog' && (
           selectedApiResource === 'Allergies'
             ? <AllergiesScreen />
+            : selectedApiResource === 'AllergyDefs'
+              ? <AllergyDefinitionsScreen />
+            : selectedApiResource === 'DiseaseDefs'
+              ? <DiseaseDefinitionsScreen />
+            : previewDefinition
+              ? <PatientsFamiliesPreviewScreen
+                  key={previewDefinition.resource}
+                  definition={previewDefinition}
+                  rows={previewRecords[previewDefinition.resource] ?? []}
+                  onCreate={(values) => dispatchPreview({
+                    type: 'create', resource: previewDefinition.resource,
+                    id: crypto.randomUUID(), values,
+                  })}
+                  onUpdate={(id, values) => dispatchPreview({
+                    type: 'update', resource: previewDefinition.resource, id, values,
+                  })}
+                  onDelete={(id) => dispatchPreview({
+                    type: 'delete', resource: previewDefinition.resource, id,
+                  })}
+                />
             : selectedApiResource && resourceMap[selectedApiResource]
               ? <ResourceScreen key={selectedApiResource} resource={resourceMap[selectedApiResource]} />
               : <ApiCatalogScreen selectedResource={selectedApiResource} />

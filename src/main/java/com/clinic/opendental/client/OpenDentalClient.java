@@ -69,6 +69,10 @@ public class OpenDentalClient {
             new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<Map<String, Object>> ALLERGY_MAP =
             new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<List<Map<String, Object>>> DISEASE_DEF_LIST =
+            new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<Map<String, Object>> DISEASE_DEF_MAP =
+            new ParameterizedTypeReference<>() {};
 
 
     /**
@@ -1052,5 +1056,62 @@ public class OpenDentalClient {
                 HttpMethod.DELETE,
                 null,
                 Void.class);
+    }
+
+    // ========================================================================
+    // Allergy Definition endpoints
+    // ========================================================================
+
+    public List<Map<String, Object>> getAllergyDefs(Map<String, String> params) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(
+                resolveBaseUrl(null) + "/allergydefs");
+        params.forEach(builder::queryParam);
+        return restTemplate.exchange(
+                builder.toUriString(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
+    }
+
+    public Map<String, Object> getAllergyDef(Long allergyDefNum) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergydefs/" + allergyDefNum,
+                HttpMethod.GET,
+                null,
+                ALLERGY_MAP).getBody();
+    }
+
+    public Map<String, Object> createAllergyDef(Map<String, Object> request) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergydefs",
+                HttpMethod.POST,
+                new HttpEntity<>(request),
+                ALLERGY_MAP).getBody();
+    }
+
+    public Map<String, Object> updateAllergyDef(Long allergyDefNum, Map<String, Object> request) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergydefs/" + allergyDefNum,
+                HttpMethod.PUT,
+                new HttpEntity<>(request),
+                ALLERGY_MAP).getBody();
+    }
+
+    // Disease Definitions: the documented API supports GET and POST only.
+    public List<Map<String, Object>> getDiseaseDefs(Map<String, String> params) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(
+                resolveBaseUrl(null) + "/diseasedefs");
+        params.forEach(builder::queryParam);
+        return restTemplate.exchange(
+                builder.toUriString(), HttpMethod.GET, null, DISEASE_DEF_LIST).getBody();
+    }
+
+    public Map<String, Object> getDiseaseDef(Long diseaseDefNum) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/diseasedefs/" + diseaseDefNum,
+                HttpMethod.GET, null, DISEASE_DEF_MAP).getBody();
+    }
+
+    public void createDiseaseDef(Map<String, Object> request) {
+        restTemplate.exchange(
+                resolveBaseUrl(null) + "/diseasedefs",
+                HttpMethod.POST, new HttpEntity<>(request), Void.class);
     }
 }

@@ -37,45 +37,6 @@ export const apiNavigationGroups = [
       'Statements', 'SubstitutionLinks',
     ],
   },
-  {
-    label: 'Communications & Documents',
-    resources: [
-      'Commlogs', 'Documents', 'Etrans', 'EtransMessageTexts', 'Etranss',
-      'RefAttaches', 'Referrals', 'Subscriptions',
-    ],
-  },
-  {
-    label: 'Office & Practice Setup',
-    resources: [
-      'Clinics', 'Computers', 'Definitions', 'Employees',
-      'Employers', 'LabCases', 'Laboratories', 'LabTurnarounds', 'Providers',
-    ],
-  },
-  {
-    label: 'Forms & Sheets',
-    resources: ['SheetDefs', 'Sheets', 'SheetFieldDefs', 'SheetFields'],
-  },
-  {
-    label: 'Tasks & Quick Notes',
-    resources: [
-      'QuickPasteCats', 'QuickPasteNotes', 'TaskLists', 'TaskNotes', 'Tasks',
-    ],
-  },
-  {
-    label: 'Users & Security',
-    resources: [
-      'Preferences', 'SecurityLogs', 'SecurityPerms', 'UserGroupAttaches',
-      'UserGroups', 'Userods',
-    ],
-  },
-  {
-    label: 'Reports & Queries',
-    resources: ['Queries', 'Reports'],
-  },
-  {
-    label: 'System & Signals',
-    resources: ['Signalods'],
-  },
 ] as const;
 
 export function formatApiResourceName(name: string): string {

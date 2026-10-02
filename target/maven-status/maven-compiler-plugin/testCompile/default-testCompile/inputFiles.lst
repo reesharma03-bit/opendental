@@ -1,9 +1,13 @@
+/home/runner/workspace/src/test/java/com/clinic/opendental/client/OpenDentalClientDiseaseDefsTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/AllergiesControllerTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/controller/AllergyDefsControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/ApiPatientsControllerTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/controller/DiseaseDefsControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/OpenDentalWebhookControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/PatientFamilyResourcesControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/dto/appointment/AppointmentResponseDeserializationTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/dto/patient/PatientResponseDeserializationTest.java
+/home/runner/workspace/src/test/java/com/clinic/opendental/service/DiseaseDefinitionServiceImplTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServiceDocumentsTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServicePatFieldsTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/service/Impl/ReconciliationSyncServicePatientsTest.java
