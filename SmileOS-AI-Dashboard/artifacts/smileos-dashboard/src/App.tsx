@@ -59,7 +59,7 @@ function Sidebar({
   mobileOpen: boolean; onClose: () => void;
   selectedResource: string | null; onSelectResource: (name: string) => void;
 }) {
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['Patients & Families']);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((groups) => groups.includes(label)
