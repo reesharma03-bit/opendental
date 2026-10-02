@@ -90,10 +90,13 @@ public class PatientServiceImpl implements PatientService {
                         patient.getPreferred(),
                         patient.getPatStatus(),
                         patient.getGender(),
+                        patient.getPosition(),
                         patient.getBirthdate() == null ? null : patient.getBirthdate().format(DATE_FORMAT),
                         patient.getEmail(),
                         patient.getWirelessPhone(),
                         patient.getHmPhone(),
+                        patient.getWkPhone(),
+                        patient.getTxtMsgOk(),
                         patient.getCity(),
                         patient.getState()))
                 .collect(Collectors.toList());

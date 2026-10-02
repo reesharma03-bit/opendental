@@ -10,10 +10,13 @@ public record PatientDirectoryResponse(
         String preferred,
         String patStatus,
         String gender,
+        String position,
         String birthdate,
         String email,
         String wirelessPhone,
         String hmPhone,
+        String wkPhone,
+        String txtMsgOk,
         String city,
         String state
 ) {

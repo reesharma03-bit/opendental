@@ -10,9 +10,12 @@ export interface BackendPatient {
   preferred: string;
   birthdate: string;
   gender: string;
+  position: string;
   email: string;
   phone: string;
   homePhone: string;
+  workPhone: string;
+  textMessagePermission: string;
   address: string;
   address2: string;
   city: string;
@@ -40,9 +43,12 @@ export function mapBackendPatient(raw: Raw): BackendPatient {
     preferred: pick(raw, 'preferred', 'Preferred'),
     birthdate: pick(raw, 'birthdate', 'Birthdate'),
     gender: pick(raw, 'gender', 'Gender'),
+    position: pick(raw, 'position', 'Position'),
     email: pick(raw, 'email', 'Email'),
-    phone: pick(raw, 'wireless_phone', 'wirelessphone', 'hm_phone', 'hmphone', 'WirelessPhone', 'HmPhone'),
+    phone: pick(raw, 'wireless_phone', 'wirelessphone', 'WirelessPhone'),
     homePhone: pick(raw, 'hm_phone', 'hmPhone', 'HmPhone'),
+    workPhone: pick(raw, 'wk_phone', 'wkPhone', 'WkPhone'),
+    textMessagePermission: pick(raw, 'txt_msg_ok', 'txtMsgOk', 'TxtMsgOk'),
     address: pick(raw, 'address', 'Address'),
     address2: pick(raw, 'address2', 'Address2'),
     city: pick(raw, 'city', 'City'),
@@ -79,7 +85,7 @@ export async function listBackendPatients(search: string): Promise<BackendPatien
   return [...seen.values()];
 }
 
-export async function createBackendPatient(input: Record<string, string>): Promise<BackendPatient> {
+export async function createBackendPatient(input: Record<string, string>): Promise<void> {
   const src: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) {
     if (v !== undefined && v !== null && String(v).trim() !== '') src[k] = String(v);
@@ -96,11 +102,13 @@ export async function createBackendPatient(input: Record<string, string>): Promi
   set(src.lastName, 'lname', 'l_name', 'LName');
   set(src.middleName, 'middle_i', 'middleI', 'MiddleI');
   set(src.preferredName, 'preferred', 'Preferred');
+  set(src.position, 'position', 'Position');
   set(src.birthdate, 'birthdate', 'Birthdate');
   set(src.gender, 'gender', 'Gender');
   set(src.status, 'pat_status', 'patStatus', 'PatStatus');
   set(src.phone, 'wireless_phone', 'wirelessPhone', 'WirelessPhone');
   set(src.homePhone, 'hm_phone', 'hmPhone', 'HmPhone');
+  set(src.workPhone, 'wk_phone', 'wkPhone', 'WkPhone');
   set(src.email, 'email', 'Email');
   set(src.address, 'address', 'Address');
   set(src.address2, 'address2', 'Address2');
@@ -108,5 +116,6 @@ export async function createBackendPatient(input: Record<string, string>): Promi
   set(src.state, 'state', 'State');
   set(src.zip, 'zip', 'Zip');
   set(src.preferContactMethod, 'prefer_contact_method', 'preferContactMethod', 'PreferContactMethod');
-  return mapBackendPatient(await request<Raw>('/api/patients', { method: 'POST', body: JSON.stringify(body) }));
+  set(src.txtMsgOk, 'txt_msg_ok', 'txtMsgOk', 'TxtMsgOk');
+  await request<{ status: string }>('/api/patients/database', { method: 'POST', body: JSON.stringify(body) });
 }

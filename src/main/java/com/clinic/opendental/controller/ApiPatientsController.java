@@ -47,6 +47,29 @@ public class ApiPatientsController {
     }
 
     /**
+     * Create a patient from the live directory without returning the full patient record.
+     */
+    @PostMapping("/database")
+    public ResponseEntity<Map<String, String>> createPatientFromDirectory(
+            @Valid @RequestBody CreatePatientRequest request) {
+
+        patientService.createPatient(request);
+        return ResponseEntity.ok(Map.of("status", "created"));
+    }
+
+    /**
+     * Update a patient from the live directory without returning the full patient record.
+     */
+    @PutMapping("/database/{patNum}")
+    public ResponseEntity<Map<String, String>> updatePatientFromDirectory(
+            @PathVariable Long patNum,
+            @Valid @RequestBody UpdatePatientRequest request) {
+
+        patientService.updatePatient(patNum, request);
+        return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    /**
      * Get Simple Patients - Faster alternative
      */
     @GetMapping("/Simple")

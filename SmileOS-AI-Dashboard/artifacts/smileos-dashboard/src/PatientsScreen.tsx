@@ -4,20 +4,20 @@ import {
   MapPin, Pencil, Plus, Search, ShieldAlert, Smartphone,
   Users, X,
 } from 'lucide-react';
-import { BACKEND_URL, backendAvailable } from './lib/backend';
+import { backendAvailable } from './lib/backend';
 import { request } from './lib/backend';
-import { createBackendPatient, listSupabasePatients, mapBackendPatient, type BackendPatient } from './lib/backendPatients';
+import { createBackendPatient, listSupabasePatients, type BackendPatient } from './lib/backendPatients';
 
 function toRecord(p: BackendPatient): PatientRecord {
   return {
     id: `P-${p.patNum}`,
     recordKey: p.recordKey,
     FName: p.firstName, LName: p.lastName, MiddleI: p.middleInitial, Preferred: p.preferred,
-    PatStatus: p.status || 'Patient', Gender: p.gender, Position: '',
+    PatStatus: p.status || 'Patient', Gender: p.gender, Position: p.position,
     Birthdate: (p.birthdate || '').slice(0, 10),
     Address: p.address, Address2: p.address2, City: p.city, State: p.state, Zip: p.zip, ClinicAbbr: p.clinicAbbr,
-    HmPhone: p.homePhone, WkPhone: '', WirelessPhone: p.phone,
-    Email: p.email, PreferContactMethod: p.preferContactMethod, TxtMsgOk: 'Unknown',
+    HmPhone: p.homePhone, WkPhone: p.workPhone, WirelessPhone: p.phone,
+    Email: p.email, PreferContactMethod: p.preferContactMethod, TxtMsgOk: p.textMessagePermission || 'Unknown',
   };
 }
 
@@ -88,11 +88,12 @@ const fieldGroups = [
 const inputClass = 'mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
 const PATIENTS_PER_PAGE = 5;
 
-export default function PatientsScreen({ search, onSearchChange, announce, createRequest }: {
+export default function PatientsScreen({ search, onSearchChange, announce, createRequest, onCreateRequestHandled }: {
   search: string;
   onSearchChange: (value: string) => void;
   announce: (message: string) => void;
   createRequest: number;
+  onCreateRequestHandled: () => void;
 }) {
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [backendOn, setBackendOn] = useState(false);
@@ -123,9 +124,8 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     return () => { live = false; };
   }, []);
 
-  // Debounced server search: after 400ms of idle typing, ask the backend so
-  // results beyond the loaded page are found. Falls back silently to local
-  // filtering when the backend is unreachable.
+  // Debounced Supabase-backed search supplements local filtering so records
+  // beyond the currently loaded result set can still be found.
   useEffect(() => {
     if (!backendOn || !backendAvailable()) return;
     const term = search.trim();
@@ -190,13 +190,28 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   };
 
   useEffect(() => {
-    if (createRequest > 0) openCreate();
-  }, [createRequest]);
+    if (createRequest > 0) {
+      openCreate();
+      onCreateRequestHandled();
+    }
+  }, [createRequest, onCreateRequestHandled]);
 
   const closeForm = () => {
     setFormOpen(false);
     setErrors({});
     announce('Changes discarded. No patient record was changed.');
+  };
+
+  const refreshFromSupabase = () => {
+    setSyncing(true);
+    listSupabasePatients('')
+      .then((rows) => {
+        setPatients(rows.map(toRecord));
+        setCurrentPage(1);
+        setBackendError('');
+      })
+      .catch((e: Error) => setBackendError(`Patient saved, but the Supabase directory could not refresh: ${e.message}`))
+      .finally(() => setSyncing(false));
   };
 
   const savePatient = async (event: FormEvent<HTMLFormElement>) => {
@@ -223,30 +238,26 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
       if (editing) {
         const body: Record<string, string> = {};
         (Object.keys(normalized) as (keyof typeof normalized)[]).forEach((k) => {
-          if (typeof normalized[k] === 'string' && normalized[k] !== editing[k]) body[k] = normalized[k];
+          const value = normalized[k];
+          if (typeof value === 'string' && value !== editing[k]) body[k] = value;
         });
         if (Object.keys(body).length === 0) { setFormError('No changes to save.'); return; }
-        await request(`/api/patients/${editing.id.replace(/^P-/, '')}`, { method: 'PUT', body: JSON.stringify(body) });
-        setPatients((current) => current.map((patient) =>
-          (patient.recordKey || patient.id) === (editing.recordKey || editing.id) ? { ...patient, ...normalized } : patient));
+        await request(`/api/patients/database/${editing.id.replace(/^P-/, '')}`, { method: 'PUT', body: JSON.stringify(body) });
         setSavedId(editing.id);
-        announce(`${normalized.FName} ${normalized.LName} updated in Open Dental (${Object.keys(body).join(', ')}).`);
+        announce(`${normalized.FName} ${normalized.LName} updated in Open Dental.`);
       } else {
-        const saved = await createBackendPatient({
+        await createBackendPatient({
           firstName: normalized.FName, lastName: normalized.LName,
           birthdate: normalized.Birthdate, phone: normalized.WirelessPhone,
           middleName: normalized.MiddleI, preferredName: normalized.Preferred,
-          gender: normalized.Gender, status: normalized.PatStatus,
-          homePhone: normalized.HmPhone, email: normalized.Email,
+          gender: normalized.Gender, position: normalized.Position, status: normalized.PatStatus,
+          homePhone: normalized.HmPhone, workPhone: normalized.WkPhone, email: normalized.Email,
           address: normalized.Address, address2: normalized.Address2,
           city: normalized.City, state: normalized.State, zip: normalized.Zip,
-          preferContactMethod: normalized.PreferContactMethod,
+          preferContactMethod: normalized.PreferContactMethod, txtMsgOk: normalized.TxtMsgOk,
         });
-        const record = toRecord(saved);
-        setPatients((current) => [record, ...current]);
-        setCurrentPage(1);
-        setSavedId(record.id);
-        announce(`Patient ${record.FName} ${record.LName} created in Open Dental as ${record.id}.`);
+        setSavedId(null);
+        announce(`Patient ${normalized.FName} ${normalized.LName} created in Open Dental.`);
       }
       setBackendError('');
     } catch (e) {
@@ -256,6 +267,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
       setSaving(false);
     }
     setFormOpen(false);
+    refreshFromSupabase();
   };
 
   const patientName = (patient: PatientRecord) => patient.Preferred.trim() || `${patient.FName} ${patient.LName}`;
@@ -265,40 +277,40 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-patients">
       {(syncing || saving || backendError) && (
         <div data-testid="patients-backend-status" className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-semibold ${backendError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
-          {syncing ? 'Syncing patients from clinic server…' : saving ? 'Saving patient to clinic server…' : `Open Dental error — ${backendError}`}
+          {syncing ? 'Loading patients from Supabase…' : saving ? 'Saving patient to Open Dental…' : `Patient database error — ${backendError}`}
         </div>
       )}
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><Users size={13} className="text-blue-500" /> PRACTICE DIRECTORY</p>
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-patients-title">Patients<span className="text-blue-600">.</span></h1>
-          <p className="mt-1.5 text-[12px] text-slate-500">Live patient records from Open Dental.</p>
+          <p className="mt-1.5 text-[12px] text-slate-500">Live patient records from Supabase.</p>
         </div>
         <button onClick={openCreate} data-testid="button-create-patient" className="flex h-10 items-center justify-center gap-2 self-start rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf] sm:self-auto"><Plus size={16} /> Add patient</button>
       </div>
 
       <div role="note" data-testid="notice-sample-only" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-[#fff8e9] px-4 py-3.5 text-amber-950 sm:items-center">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:mt-0"><ShieldAlert size={17} /></span>
-        <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Live patient data · Changes write to Open Dental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Confirm the patient before creating or editing a record. Failures are shown here and nothing is saved locally.</p></div>
+        <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Supabase patient data · Add/Edit writes to Open Dental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Add and Edit change live patient records through the Open Dental API. Failures are shown here and nothing is saved locally.</p></div>
         <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Open Dental</span>
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-patient-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Patient directory</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700" data-testid="text-patient-count">{patients.length}</span></div><p className="mt-1 text-[10px] text-slate-400">Live records · changes write to Open Dental</p></div>
+          <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Patient directory</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700" data-testid="text-patient-count">{patients.length}</span></div><p className="mt-1 text-[10px] text-slate-400">Supabase records · Add/Edit writes to Open Dental</p></div>
           <label className="relative block w-full sm:max-w-[310px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search name, ID, email or phone" aria-label="Search patients" data-testid="input-patient-search" className="h-10 w-full rounded-xl border border-slate-200 bg-[#fbfcfe] pl-9 pr-9 text-[11px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70" />{search && <button type="button" onClick={() => onSearchChange('')} aria-label="Clear patient search" data-testid="button-clear-patient-search" className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X size={13} /></button>}</label>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left">
-            <thead><tr className="border-b border-slate-100 bg-slate-50/65 text-[9px] font-bold uppercase tracking-[.8px] text-slate-400"><th className="px-5 py-3 sm:px-6">Patient</th><th className="px-3 py-3">Patient ID</th><th className="px-3 py-3">Contact</th><th className="px-3 py-3">Location</th><th className="px-3 py-3">Status</th><th className="px-5 py-3 text-right sm:px-6">Action</th></tr></thead>
+            <thead><tr className="border-b border-slate-100 bg-slate-50/65 text-[9px] font-bold uppercase tracking-[.8px] text-slate-400"><th className="px-5 py-3 sm:px-6">Patient</th><th className="px-3 py-3">Patient ID</th><th className="px-3 py-3">Contact</th><th className="px-3 py-3">Location</th><th className="px-3 py-3">Status</th><th className="sticky right-0 z-20 bg-slate-50 px-5 py-3 text-right shadow-[-8px_0_10px_rgba(15,23,42,.04)] sm:px-6">Action</th></tr></thead>
             <tbody>
-              {pagePatients.map((patient, index) => <tr key={patient.id} className={`border-b border-slate-100/80 last:border-0 transition hover:bg-slate-50/60 ${savedId === patient.id ? 'bg-emerald-50/30' : ''}`} data-testid={`row-patient-record-${patient.id}`}>
+              {pagePatients.map((patient, index) => <tr key={patient.recordKey || patient.id} className={`border-b border-slate-100/80 last:border-0 transition hover:bg-slate-50/60 ${savedId === patient.id ? 'bg-emerald-50/30' : ''}`} data-testid={`row-patient-record-${patient.recordKey || patient.id}`}>
                 <td className="px-5 py-3.5 sm:px-6"><div className="flex items-center gap-2.5"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${['bg-sky-100 text-sky-700', 'bg-violet-100 text-violet-700', 'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700', 'bg-emerald-100 text-emerald-700'][index % 5]}`}>{initials(patient)}</span><div className="min-w-0"><p className="truncate text-[11px] font-bold text-slate-700" data-testid={`text-patient-name-${patient.id}`}>{patientName(patient)}</p><p className="mt-0.5 text-[9px] text-slate-400">{patient.Gender || 'Gender not specified'}{patient.Birthdate ? ` · ${new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${patient.Birthdate}T00:00:00`))}` : ''}</p></div></div></td>
-                <td className="px-3 py-3"><span className="rounded-md bg-slate-50 px-2 py-1 font-mono text-[10px] font-semibold text-slate-500" data-testid={`text-patient-id-${patient.id}`}>{patient.id}</span></td>
-                <td className="px-3 py-3"><div className="space-y-1">{patient.WirelessPhone && <p className="flex items-center gap-1.5 text-[10px] text-slate-600"><Smartphone size={11} className="text-slate-400" />{patient.WirelessPhone}</p>}{patient.Email && <p className="flex items-center gap-1.5 text-[10px] text-slate-500"><Mail size={11} className="text-slate-400" /><span className="max-w-[180px] truncate">{patient.Email}</span></p>}{!patient.WirelessPhone && !patient.Email && <span className="text-[10px] text-slate-400">No contact details</span>}</div></td>
+                <td className="px-3 py-3"><span className="rounded-md bg-slate-50 px-2 py-1 font-mono text-[10px] font-semibold text-slate-500" data-testid={`text-patient-id-${patient.id}`}>{patient.id}</span>{patient.ClinicAbbr && <p className="mt-1 text-[9px] text-slate-400">{patient.ClinicAbbr}</p>}</td>
+                <td className="px-3 py-3"><div className="space-y-1">{(patient.WirelessPhone || patient.HmPhone) && <p className="flex items-center gap-1.5 text-[10px] text-slate-600"><Smartphone size={11} className="text-slate-400" />{patient.WirelessPhone || patient.HmPhone}</p>}{patient.Email && <p className="flex items-center gap-1.5 text-[10px] text-slate-500"><Mail size={11} className="text-slate-400" /><span className="max-w-[180px] truncate">{patient.Email}</span></p>}{!patient.WirelessPhone && !patient.HmPhone && !patient.Email && <span className="text-[10px] text-slate-400">No contact details</span>}</div></td>
                 <td className="px-3 py-3"><p className="flex items-center gap-1.5 text-[10px] text-slate-500">{patient.City || patient.State ? <MapPin size={11} className="text-slate-400" /> : null}{[patient.City, patient.State].filter(Boolean).join(', ') || '—'}</p></td>
                 <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${patient.PatStatus === 'Patient' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`} data-testid={`status-patient-${patient.id}`}>{patient.PatStatus || 'Unspecified'}</span></td>
-                <td className="px-5 py-3 text-right sm:px-6"><button onClick={() => openEdit(patient)} data-testid={`button-edit-patient-${patient.id}`} aria-label={`Edit ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></td>
+                <td className="sticky right-0 z-10 bg-white px-5 py-3 text-right shadow-[-8px_0_10px_rgba(15,23,42,.04)] sm:px-6"><button onClick={() => openEdit(patient)} data-testid={`button-edit-patient-${patient.id}`} aria-label={`Edit ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></td>
               </tr>)}
               {visiblePatients.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center" data-testid="empty-patient-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">No matching patients</p><p className="mt-1 text-[10px] text-slate-400">Try a different name, ID, email or phone number.</p></td></tr>}
             </tbody>
