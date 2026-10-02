@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "java-graalvm22.3", "web"]
+modules = ["nodejs-20", "java-graalvm22.3", "web", "python-base-3.13"]
 
 [nix]
 channel = "stable-25_05"
@@ -7,5 +7,33 @@ channel = "stable-25_05"
 expertMode = true
 
 [[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
 localPort = 24136
 externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Open Dental Java API"
+
+[[workflows.workflow]]
+name = "Open Dental Java API"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=8080 RECONCILIATION_ENABLED=false mvn spring-boot:run"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"

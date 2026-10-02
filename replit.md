@@ -8,7 +8,9 @@ This repository contains a Java Spring Boot API at the root and the SmileOS Reac
 - Dashboard workflow: `SmileOS-AI-Dashboard/artifacts/smileos-dashboard: web`.
 - The artifact-managed workflow supplies `PORT` and `BASE_PATH` automatically; start/restart the existing workflow rather than overriding it.
 - Manual dashboard command outside that workflow: `cd SmileOS-AI-Dashboard && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/smileos-dashboard run dev`.
-- Java backend command: `PORT=8080 mvn spring-boot:run`.
+- Java backend workflow: `Open Dental Java API`.
+- Java backend command: `PORT=8080 RECONCILIATION_ENABLED=false mvn spring-boot:run`.
+- Scheduled synchronization is deliberately disabled during import setup to avoid automatic writes to the existing database. Enable it only after explicitly configuring and approving live Open Dental synchronization.
 - The dashboard binds to `0.0.0.0` on the artifact-assigned port; Vite forwards `/api` requests to the Java backend on port 8080. Browser requests use relative URLs by default.
 - The separate Express API artifact only supplies a health endpoint and is not the dashboard's patient/appointment backend. It does not replace the Java API.
 - The mockup sandbox is for design previews, not needed to run the application.
