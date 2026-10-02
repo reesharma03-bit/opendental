@@ -39,12 +39,15 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
-    try {
-      const data = await res.json();
-      message = (data as { message?: string; error?: string }).message
-        ?? (data as { error?: string }).error
-        ?? message;
-    } catch { /* non-JSON error body */ }
+    const text = await res.text();
+    if (text.trim()) {
+      try {
+        const data = JSON.parse(text) as string | { message?: string; error?: string };
+        message = typeof data === 'string' ? data : data.message ?? data.error ?? message;
+      } catch {
+        message = `${message}: ${text.slice(0, 1000)}`;
+      }
+    }
     throw new Error(message);
   }
   if (res.status === 204) return undefined as T;

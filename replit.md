@@ -21,11 +21,19 @@ Provide `SUPABASE_DB_URL` (JDBC PostgreSQL URL), `SUPABASE_DB_USERNAME`, and `SU
 
 The imported application configuration contains committed database credentials. Do not use those defaults; rotate the exposed credentials and remove them from source/history in a separate security cleanup.
 
-Set `OPENDENTAL_BASE_URL` to the existing Open Dental service when live synchronization is needed. Without that service, API operations may fall back to Supabase data, but upstream synchronization will not work.
+Set `OPENDENTAL_BASE_URL` to the existing Open Dental service when live synchronization is needed. Existing patient reads may fall back to stored Supabase data, but this does not prove live synchronization. The direct Patients & Families resource adapters return explicit connectivity errors when the upstream service is unavailable.
+
+## Clinical resource behavior
+
+- Patients & Families covers all 22 resources in that sidebar group. Leave unrelated resource groups unchanged unless they are explicitly requested.
+- Supported actions follow each resource's official Open Dental documentation, not universal CRUD. Read-only resources must not offer write actions.
+- Never synthesize clinical records or report a local save as success after an API write fails. Keep failed forms open with an explicit error; only a successful backend response permits a success message.
+- The display-only dashboard demo is separate from clinical API screens. Its sample metrics are not evidence of live clinical data.
 
 ## Verification
 
 - Java build/tests: `mvn test`.
-- Dashboard typecheck: `cd SmileOS-AI-Dashboard && pnpm --filter @workspace/smileos-dashboard run typecheck`.
+- Dashboard typecheck: `cd SmileOS-AI-Dashboard && node_modules/.bin/tsc -p artifacts/smileos-dashboard/tsconfig.json --noEmit`.
+- Resource UI contract tests: from `SmileOS-AI-Dashboard/artifacts/smileos-dashboard`, run `../../node_modules/.bin/tsc src/lib/resourceMeta.test.ts --outDir /tmp/smileos-resource-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --types node && node --test /tmp/smileos-resource-tests/lib/resourceMeta.test.js`. These use Node's built-in test runner, not Vitest.
 - Dashboard build: `cd SmileOS-AI-Dashboard && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/smileos-dashboard run build`.
 - The imported dashboard includes demo metrics and local data. A visible dashboard is not proof that the database or live Open Dental connection works.

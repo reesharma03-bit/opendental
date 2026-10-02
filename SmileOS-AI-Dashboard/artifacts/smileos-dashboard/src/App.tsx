@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3,
   Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
@@ -13,6 +13,13 @@ import AppointmentsScreen from './AppointmentsScreen';
 import ApiCatalogScreen from './ApiCatalogScreen';
 import AllergiesScreen from './AllergiesScreen';
 import PatientsScreen from './PatientsScreen';
+import ResourceScreen from './ResourceScreen';
+import { resourceMap } from './lib/resourceMeta';
+
+const initialResource = (() => {
+  const name = new URLSearchParams(window.location.search).get('resource');
+  return name && apiNavigationGroups.some((g) => (g.resources as readonly string[]).includes(name)) ? name : null;
+})();
 import { apiNavigationGroups, formatApiResourceName } from './apiNavigation';
 
 type Patient = { name: string; initials: string; detail: string; color: string; id: string };
@@ -60,7 +67,8 @@ function Sidebar({
   mobileOpen: boolean; onClose: () => void;
   selectedResource: string | null; onSelectResource: (name: string) => void;
 }) {
-  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() =>
+    apiNavigationGroups.filter((group) => (group.resources as readonly string[]).includes(selectedResource ?? '')).map((group) => group.label));
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((groups) => groups.includes(label)
@@ -180,8 +188,8 @@ function Avatar({ initials, tone }: { initials: string; tone?: string }) {
 function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState('Dashboard');
-  const [selectedApiResource, setSelectedApiResource] = useState<string | null>(null);
+  const [activeNav, setActiveNav] = useState(initialResource ? 'API Catalog' : 'Dashboard');
+  const [selectedApiResource, setSelectedApiResource] = useState<string | null>(initialResource);
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
@@ -190,6 +198,16 @@ function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [period, setPeriod] = useState('This week');
   const [checkedIn, setCheckedIn] = useState<string[]>(['Aarav Mehta']);
+  useEffect(() => {
+    const restoreResource = () => {
+      const value = new URLSearchParams(window.location.search).get('resource');
+      const resource = value && apiNavigationGroups.some((group) => (group.resources as readonly string[]).includes(value)) ? value : null;
+      setSelectedApiResource(resource);
+      setActiveNav(resource ? 'API Catalog' : 'Dashboard');
+    };
+    window.addEventListener('popstate', restoreResource);
+    return () => window.removeEventListener('popstate', restoreResource);
+  }, []);
 
   const visibleAppointments = useMemo(() => appointments.filter((item) =>
     `${item.name} ${item.treatment} ${item.dentist} ${item.status}`.toLowerCase().includes(search.toLowerCase())), [search]);
@@ -205,10 +223,12 @@ function App() {
   const runQuickAction = (name: string) => {
     setActiveNav(name);
     if (name === 'API Catalog') setSelectedApiResource(null);
+    window.history.pushState(null, '', name === 'Dashboard' ? '/' : window.location.pathname);
   };
   const openApiResource = (name: string) => {
     setSelectedApiResource(name);
     setActiveNav('API Catalog');
+    window.history.pushState(null, '', `/?resource=${encodeURIComponent(name)}`);
   };
 
   return (
@@ -339,7 +359,9 @@ function App() {
         {activeNav === 'API Catalog' && (
           selectedApiResource === 'Allergies'
             ? <AllergiesScreen />
-            : <ApiCatalogScreen selectedResource={selectedApiResource} />
+            : selectedApiResource && resourceMap[selectedApiResource]
+              ? <ResourceScreen key={selectedApiResource} resource={resourceMap[selectedApiResource]} />
+              : <ApiCatalogScreen selectedResource={selectedApiResource} />
         )}
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}

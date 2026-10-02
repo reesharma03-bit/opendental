@@ -38,9 +38,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * request mapping, bean validation, status codes and the JSON contract without
  * needing a live Open Dental instance.</p>
  *
- * <p>The app's REST API uses the global Jackson {@code SNAKE_CASE} strategy, so
- * request bodies are posted with snake_case keys and responses are asserted on
- * snake_case paths ({@code pat_num}, {@code l_name}, ...).</p>
+ * <p>The app retains its global Jackson {@code SNAKE_CASE} response convention.
+ * Patient write DTOs also accept documented Open Dental PascalCase request keys
+ * alongside their existing lowercase and snake_case forms.</p>
  */
 @WebMvcTest(ApiPatientsController.class)
 class ApiPatientsControllerTest {
@@ -126,6 +126,27 @@ class ApiPatientsControllerTest {
     }
 
     @Test
+    void createsPatientFromCanonicalOpenDentalPascalCaseFields() throws Exception {
+        when(patientService.createPatient(any(CreatePatientRequest.class)))
+                .thenReturn(PatientResponse.builder()
+                        .PatNum(1002L).LName("Ng").FName("Ari").HmPhone("555-0100").build());
+
+        mockMvc.perform(post("/api/patients")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"LName\":\"Ng\",\"FName\":\"Ari\",\"HmPhone\":\"555-0100\",\"ClinicNum\":12}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/api/patients/1002"));
+
+        org.mockito.ArgumentCaptor<CreatePatientRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(CreatePatientRequest.class);
+        verify(patientService).createPatient(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("Ng", captor.getValue().getLName());
+        org.junit.jupiter.api.Assertions.assertEquals("Ari", captor.getValue().getFName());
+        org.junit.jupiter.api.Assertions.assertEquals("555-0100", captor.getValue().getHmPhone());
+        org.junit.jupiter.api.Assertions.assertEquals(12L, captor.getValue().getClinicNum());
+    }
+
+    @Test
     void updatePatientReturnsUpdatedFields() throws Exception {
         when(patientService.updatePatient(eq(47L), any(UpdatePatientRequest.class)))
                 .thenReturn(PatientResponse.builder()
@@ -144,6 +165,27 @@ class ApiPatientsControllerTest {
                 .andExpect(jsonPath("$.pat_num", is(47)))
                 .andExpect(jsonPath("$.preferred", is("Janie")))
                 .andExpect(jsonPath("$.prefer_contact_method", is("WirelessPh")));
+    }
+
+    @Test
+    void partiallyUpdatesPatientFromCanonicalPascalCaseWithoutLosingFields() throws Exception {
+        when(patientService.updatePatient(eq(47L), any(UpdatePatientRequest.class)))
+                .thenReturn(PatientResponse.builder()
+                        .PatNum(47L).HmPhone("555-0199").Preferred("Janie").build());
+
+        mockMvc.perform(put("/api/patients/47")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"HmPhone\":\"555-0199\",\"Preferred\":\"Janie\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hm_phone", is("555-0199")))
+                .andExpect(jsonPath("$.preferred", is("Janie")));
+
+        org.mockito.ArgumentCaptor<UpdatePatientRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(UpdatePatientRequest.class);
+        verify(patientService).updatePatient(eq(47L), captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("555-0199", captor.getValue().getHmPhone());
+        org.junit.jupiter.api.Assertions.assertEquals("Janie", captor.getValue().getPreferred());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getLName());
     }
 
     @Test

@@ -5,6 +5,7 @@ import {
   Users, X,
 } from 'lucide-react';
 import { BACKEND_URL, backendAvailable } from './lib/backend';
+import { request } from './lib/backend';
 import { createBackendPatient, listBackendPatients, mapBackendPatient, type BackendPatient } from './lib/backendPatients';
 
 function toRecord(p: BackendPatient): PatientRecord {
@@ -49,15 +50,6 @@ const emptyPatient = (): Omit<PatientRecord, 'id'> => ({
   Email: '', PreferContactMethod: '', TxtMsgOk: 'Unknown',
 });
 
-const initialPatients: PatientRecord[] = [
-  { ...emptyPatient(), id: 'P-1048', FName: 'Aarav', LName: 'Mehta', Preferred: 'Aarav', PatStatus: 'Patient', Gender: 'Male', Birthdate: '1988-04-12', WirelessPhone: '+91 98765 41048', Email: 'aarav.mehta@example.test', City: 'Mumbai', State: 'MH' },
-  { ...emptyPatient(), id: 'P-1032', FName: 'Ananya', LName: 'Kapoor', Preferred: 'Ananya', PatStatus: 'Patient', Gender: 'Female', Birthdate: '1992-09-03', WirelessPhone: '+91 98765 41032', Email: 'ananya.kapoor@example.test', City: 'Mumbai', State: 'MH' },
-  { ...emptyPatient(), id: 'P-1009', FName: 'Rohan', LName: 'Desai', Preferred: 'Rohan', PatStatus: 'Patient', Gender: 'Male', Birthdate: '1979-02-21', WirelessPhone: '+91 98765 41009', Email: 'rohan.desai@example.test', City: 'Pune', State: 'MH' },
-  { ...emptyPatient(), id: 'P-0988', FName: 'Mira', LName: 'Iyer', Preferred: 'Mira', PatStatus: 'Patient', Gender: 'Female', Birthdate: '1995-11-18', WirelessPhone: '+91 98765 40988', Email: 'mira.iyer@example.test', City: 'Mumbai', State: 'MH' },
-  { ...emptyPatient(), id: 'P-0974', FName: 'Kabir', LName: 'Singh', Preferred: 'Kabir', PatStatus: 'Patient', Gender: 'Male', Birthdate: '1984-06-28', WirelessPhone: '+91 98765 40974', Email: 'kabir.singh@example.test', City: 'Navi Mumbai', State: 'MH' },
-  { ...emptyPatient(), id: 'P-0956', FName: 'Nisha', LName: 'Patel', Preferred: 'Nisha', PatStatus: 'Patient', Gender: 'Female', Birthdate: '1987-01-14', WirelessPhone: '+91 98765 40956', Email: 'nisha.patel@example.test', City: 'Thane', State: 'MH' },
-];
-
 const fieldGroups = [
   {
     title: 'Patient details',
@@ -99,8 +91,9 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   announce: (message: string) => void;
   createRequest: number;
 }) {
-  const [patients, setPatients] = useState<PatientRecord[]>(initialPatients);
+  const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [backendOn, setBackendOn] = useState(false);
+  const [formError, setFormError] = useState('');
   const [backendError, setBackendError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -112,17 +105,17 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
-    if (!backendAvailable()) return;
+    if (!backendAvailable()) { setBackendError('Backend is offline in this build. No patient records can be loaded or saved.'); return; }
     let live = true;
     setSyncing(true);
     listBackendPatients('')
       .then((rows) => {
         if (!live) return;
-        if (rows.length > 0) setPatients(rows.map(toRecord));
+        setPatients(rows.map(toRecord));
         setBackendOn(true);
         setBackendError('');
       })
-      .catch((e: Error) => { if (live) setBackendError(e.message); })
+      .catch((e: Error) => { if (live) { setPatients([]); setBackendError(e.message); } })
       .finally(() => { if (live) setSyncing(false); });
     return () => { live = false; };
   }, []);
@@ -180,6 +173,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     setEditing(null);
     setDraft(emptyPatient());
     setErrors({});
+    setFormError('');
     setFormOpen(true);
   };
 
@@ -188,6 +182,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     setEditing(patient);
     setDraft(values);
     setErrors({});
+    setFormError('');
     setFormOpen(true);
   };
 
@@ -218,13 +213,21 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
       return;
     }
     const normalized = { ...draft, FName: draft.FName.trim(), LName: draft.LName.trim(), Email: draft.Email.trim() };
-    if (editing) {
-      setPatients((current) => current.map((patient) => patient.id === editing.id ? { ...normalized, id: editing.id } : patient));
-      setSavedId(editing.id);
-      announce(`${normalized.FName} ${normalized.LName} updated in this sample only.`);
-    } else if (backendOn) {
-      setSaving(true);
-      try {
+    if (!backendAvailable()) { setFormError('Backend is offline. Nothing was saved.'); return; }
+    setSaving(true);
+    setFormError('');
+    try {
+      if (editing) {
+        const body: Record<string, string> = {};
+        (Object.keys(normalized) as (keyof typeof normalized)[]).forEach((k) => {
+          if (normalized[k] !== editing[k]) body[k] = normalized[k];
+        });
+        if (Object.keys(body).length === 0) { setFormError('No changes to save.'); return; }
+        await request(`/api/patients/${editing.id.replace(/^P-/, '')}`, { method: 'PUT', body: JSON.stringify(body) });
+        setPatients((current) => current.map((patient) => patient.id === editing.id ? { ...patient, ...normalized } : patient));
+        setSavedId(editing.id);
+        announce(`${normalized.FName} ${normalized.LName} updated in Open Dental (${Object.keys(body).join(', ')}).`);
+      } else {
         const saved = await createBackendPatient({
           firstName: normalized.FName, lastName: normalized.LName,
           birthdate: normalized.Birthdate, phone: normalized.WirelessPhone,
@@ -239,24 +242,14 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
         setPatients((current) => [record, ...current]);
         setCurrentPage(1);
         setSavedId(record.id);
-        setBackendError('');
-        announce(`Patient ${record.FName} ${record.LName} created on the server as ${record.id}.`);
-      } catch (e) {
-        setBackendError((e as Error).message);
-        const newId = `P-${String(Math.floor(10000 + Math.random() * 89999))}`;
-        setPatients((current) => [{ ...normalized, id: newId }, ...current]);
-        setCurrentPage(1);
-        setSavedId(newId);
-        announce(`Server create failed — ${(e as Error).message}. Saved locally instead.`);
-      } finally {
-        setSaving(false);
+        announce(`Patient ${record.FName} ${record.LName} created in Open Dental as ${record.id}.`);
       }
-    } else {
-      const newId = `P-${String(Math.floor(10000 + Math.random() * 89999))}`;
-      setPatients((current) => [{ ...normalized, id: newId }, ...current]);
-      setCurrentPage(1);
-      setSavedId(newId);
-      announce(`${normalized.FName} ${normalized.LName} added to this sample list.`);
+      setBackendError('');
+    } catch (e) {
+      setFormError((e as Error).message);
+      return;
+    } finally {
+      setSaving(false);
     }
     setFormOpen(false);
   };
@@ -268,27 +261,27 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-patients">
       {(syncing || saving || backendError) && (
         <div data-testid="patients-backend-status" className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-semibold ${backendError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
-          {syncing ? 'Syncing patients from clinic server…' : saving ? 'Saving patient to clinic server…' : `Clinic server error — ${backendError} (showing sample data).`}
+          {syncing ? 'Syncing patients from clinic server…' : saving ? 'Saving patient to clinic server…' : `Open Dental error — ${backendError}`}
         </div>
       )}
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><Users size={13} className="text-blue-500" /> PRACTICE DIRECTORY</p>
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-patients-title">Patients<span className="text-blue-600">.</span></h1>
-          <p className="mt-1.5 text-[12px] text-slate-500">A sample directory for exploring the SmileOS workflow.</p>
+          <p className="mt-1.5 text-[12px] text-slate-500">Live patient records from Open Dental.</p>
         </div>
         <button onClick={openCreate} data-testid="button-create-patient" className="flex h-10 items-center justify-center gap-2 self-start rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf] sm:self-auto"><Plus size={16} /> Add patient</button>
       </div>
 
       <div role="note" data-testid="notice-sample-only" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-[#fff8e9] px-4 py-3.5 text-amber-950 sm:items-center">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:mt-0"><ShieldAlert size={17} /></span>
-        <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Sample-only · Not connected to OpenDental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Search, create, and edit here are local browser state only. Nothing is written to a practice record, and changes reset when you reload.</p></div>
-        <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Local demo</span>
+        <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Live patient data · Changes write to Open Dental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Confirm the patient before creating or editing a record. Failures are shown here and nothing is saved locally.</p></div>
+        <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Open Dental</span>
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-patient-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Patient directory</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700" data-testid="text-patient-count">{patients.length}</span></div><p className="mt-1 text-[10px] text-slate-400">Sample records · edits stay in this tab</p></div>
+          <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Patient directory</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700" data-testid="text-patient-count">{patients.length}</span></div><p className="mt-1 text-[10px] text-slate-400">Live records · changes write to Open Dental</p></div>
           <label className="relative block w-full sm:max-w-[310px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search name, ID, email or phone" aria-label="Search patients" data-testid="input-patient-search" className="h-10 w-full rounded-xl border border-slate-200 bg-[#fbfcfe] pl-9 pr-9 text-[11px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70" />{search && <button type="button" onClick={() => onSearchChange('')} aria-label="Clear patient search" data-testid="button-clear-patient-search" className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X size={13} /></button>}</label>
         </div>
         <div className="overflow-x-auto">
@@ -346,18 +339,18 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
               <span className="hidden sm:inline">Next</span><ChevronRight size={14} />
             </button>
           </nav>
-          <span className="flex items-center justify-center gap-1.5 text-[9px] font-medium text-slate-400 sm:justify-end"><CalendarDays size={12} /> Local data · resets on reload</span>
+          <span className="flex items-center justify-center gap-1.5 text-[9px] font-medium text-slate-400 sm:justify-end"><CalendarDays size={12} /> Live data</span>
         </div>
       </section>
 
       {formOpen && <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }} data-testid="dialog-patient-form-overlay">
         <section role="dialog" aria-modal="true" aria-labelledby="patient-form-title" className="flex max-h-[94dvh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[24px] bg-[#fbfcfe] shadow-2xl sm:rounded-[24px]" data-testid="dialog-patient-form">
           <header className="flex items-center justify-between border-b border-slate-200/80 bg-white px-5 py-4 sm:px-7">
-            <div><p className="text-[9px] font-bold uppercase tracking-[1.4px] text-blue-600">Local sample record</p><h2 id="patient-form-title" className="mt-1 font-[Manrope] text-[18px] font-extrabold tracking-[-.5px] text-slate-900">{editing ? 'Edit patient' : 'Add patient'}</h2></div>
+            <div><p className="text-[9px] font-bold uppercase tracking-[1.4px] text-blue-600">Open Dental record</p><h2 id="patient-form-title" className="mt-1 font-[Manrope] text-[18px] font-extrabold tracking-[-.5px] text-slate-900">{editing ? 'Edit patient' : 'Add patient'}</h2></div>
             <button type="button" onClick={closeForm} aria-label="Close patient form" data-testid="button-close-patient-form" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100"><X size={18} /></button>
           </header>
           <form id="patient-record-form" onSubmit={savePatient} noValidate className="dashboard-scroll overflow-y-auto px-5 py-5 sm:px-7">
-            <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/70 px-3.5 py-3 text-blue-900"><CircleAlert size={15} className="mt-0.5 shrink-0 text-blue-600" /><p className="text-[10px] leading-[1.6]">This form updates only the local sample list. First and last name are required. No SSN is collected.</p></div>
+            <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/70 px-3.5 py-3 text-blue-900"><CircleAlert size={15} className="mt-0.5 shrink-0 text-blue-600" /><p className="text-[10px] leading-[1.6]">First and last name are required. Changes are sent to Open Dental when you save. No SSN is collected.</p></div>
             {fieldGroups.map((group) => <fieldset key={group.title} className="mb-5 last:mb-0">
               <legend className="mb-3 w-full border-b border-slate-200 pb-2 text-[11px] font-bold text-slate-700">{group.title}</legend>
               <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
@@ -368,10 +361,11 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
                 </label>)}
               </div>
             </fieldset>)}
+            {formError && <p role="alert" data-testid="patient-form-error" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-700">{formError}</p>}
           </form>
           <footer className="flex flex-col-reverse gap-2 border-t border-slate-200/80 bg-white px-5 py-4 sm:flex-row sm:justify-between sm:px-7">
-            <span className="flex items-center gap-1.5 text-[9px] leading-4 text-slate-400"><ShieldAlert size={12} className="shrink-0 text-amber-600" />Sample only — not connected to OpenDental</span>
-            <div className="flex justify-end gap-2"><button type="button" onClick={closeForm} data-testid="button-cancel-patient" className="h-9 rounded-xl border border-slate-200 px-4 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button><button type="submit" form="patient-record-form" data-testid="button-save-patient" className="flex h-9 items-center gap-1.5 rounded-xl bg-[#315fe7] px-4 text-[11px] font-bold text-white transition hover:bg-[#244fcf]"><Check size={14} />{editing ? 'Save changes' : 'Create patient'}<ArrowUpRight size={12} /></button></div>
+            <span className="flex items-center gap-1.5 text-[9px] leading-4 text-slate-400"><ShieldAlert size={12} className="shrink-0 text-amber-600" />Saves to Open Dental</span>
+            <div className="flex justify-end gap-2"><button type="button" onClick={closeForm} data-testid="button-cancel-patient" className="h-9 rounded-xl border border-slate-200 px-4 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button><button type="submit" form="patient-record-form" disabled={saving} data-testid="button-save-patient" className="flex disabled:opacity-60 h-9 items-center gap-1.5 rounded-xl bg-[#315fe7] px-4 text-[11px] font-bold text-white transition hover:bg-[#244fcf]"><Check size={14} />{editing ? 'Save changes' : 'Create patient'}<ArrowUpRight size={12} /></button></div>
           </footer>
         </section>
       </div>}

@@ -8,6 +8,7 @@
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/AppointmentController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/DocumentsController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/OpenDentalWebhookController.java
+/home/runner/workspace/src/main/java/com/clinic/opendental/controller/PatientFamilyResourcesController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/ProcedureLogsController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/QueriesController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/SubscriptionController.java

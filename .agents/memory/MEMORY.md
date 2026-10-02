@@ -1,0 +1,1 @@
+- [Browser-test capability](browser-test-capability.md) — local skill instructions can advertise a tester that the runtime does not support; distinguish rendered previews from interaction checks.
