@@ -18,6 +18,7 @@ import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesP
 import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
 import { schedulingPreviewDefinitions } from './schedulingDefinitions';
 import { clinicalCarePreviewDefinitions } from './clinicalCareDefinitions';
+import { billingPreviewDefinitions } from './billingDefinitions';
 import { usePatientsFamilyPreviews } from './patients-families/usePatientsFamilyPreviews';
 
 const initialResource = (() => {
@@ -198,7 +199,8 @@ function App() {
   const previewDefinition = selectedApiResource
     ? patientFamilyPreviewDefinitions[selectedApiResource]
       ?? schedulingPreviewDefinitions[selectedApiResource]
-      ?? clinicalCarePreviewDefinitions[selectedApiResource] : undefined;
+      ?? clinicalCarePreviewDefinitions[selectedApiResource]
+      ?? billingPreviewDefinitions[selectedApiResource] : undefined;
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');

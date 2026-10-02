@@ -1,6 +1,7 @@
 import { patientFamilyPreviewDefinitions } from './definitions';
 import { schedulingPreviewDefinitions } from '../schedulingDefinitions';
 import { clinicalCarePreviewDefinitions } from '../clinicalCareDefinitions';
+import { billingPreviewDefinitions } from '../billingDefinitions';
 import type { PreviewStore } from './store';
 import type { PreviewField, PreviewValues } from './types';
 
@@ -40,6 +41,7 @@ export function createDemoPreviewStore(): PreviewStore {
     ...patientFamilyPreviewDefinitions,
     ...schedulingPreviewDefinitions,
     ...clinicalCarePreviewDefinitions,
+    ...billingPreviewDefinitions,
   };
   return Object.fromEntries(Object.values(definitions).map((definition) => [
     definition.resource,
