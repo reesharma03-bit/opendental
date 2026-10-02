@@ -1,0 +1,528 @@
+# Database Schema Documentation
+
+## Overview
+
+This document describes the **multi-tenant SaaS database schema** hosted on **Supabase (PostgreSQL)** for the Open Dental Sync Service. The database stores synced data from multiple Open Dental instances, with each clinic (tenant) isolated via Row Level Security (RLS).
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Supabase (PostgreSQL)                     │
+│                   Multi-Tenant Database                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  Clinic A   │  │  Clinic B   │  │  Clinic C   │         │
+│  │  (Tenant)   │  │  (Tenant)   │  │  (Tenant)   │         │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤         │
+│  │  patients   │  │  patients   │  │  patients   │         │
+│  │ appointments│  │ appointments│  │ appointments│         │
+│  │  documents  │  │  documents  │  │  documents  │         │
+│  │ proc_logs   │  │ proc_logs   │  │ proc_logs   │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+│                                                              │
+│  RLS isolates each clinic's data — tenants cannot see       │
+│  each other's rows.                                          │
+└─────────────────────────────────────────────────────────────┘
+        ▲                              ▲
+        │                              │
+   Spring Boot Sync Service       Webhook Events
+   (service role bypasses RLS)    (per clinic)
+```
+
+---
+
+## Tables
+
+### 1. `clinics` — Tenant Registry
+
+**Purpose:** Registers each clinic (tenant) in the SaaS platform. Each clinic has its own Open Dental instance.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID (PK) | Unique clinic identifier |
+| `clinic_name` | text | Display name (e.g., "Clinic A - Downtown") |
+| `clinic_code` | text (unique) | Short code (e.g., `CLINIC_A`) used in API paths |
+| `base_url` | text | Open Dental API base URL for this clinic |
+| `api_key` | text | Open Dental API key for authentication |
+| `is_active` | boolean | Whether this clinic is active |
+| `subscription_tier` | text | SaaS plan: `free`, `pro`, or `enterprise` |
+| `max_patients` | integer | Patient limit for this tier |
+| `webhook_secret` | text | Secret for verifying inbound webhooks |
+| `last_sync_at` | timestamptz | Last successful reconciliation sync |
+| `last_webhook_at` | timestamptz | Last webhook event received |
+| `created_at` | timestamptz | Record creation time |
+| `updated_at` | timestamptz | Last update time (auto-maintained) |
+
+**Why it exists:** Without this table, the system cannot know which clinics exist, what their Open Dental URLs are, or how to authenticate with their Open Dental instances.
+
+---
+
+### 2. `patients` — Patient Records (Tenant-Scoped)
+
+**Purpose:** Stores patient data synced from Open Dental. Each patient belongs to a specific clinic.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | FK to `clinics.id` — identifies the tenant |
+| `pat_num` | bigint (PK part) | Open Dental patient number |
+| `l_name` | text | Last name |
+| `f_name` | text | First name |
+| `middle_i` | text | Middle initial |
+| `preferred` | text | Preferred name |
+| `pat_status` | text | Patient, NonPatient, Archived, etc. |
+| `gender` | text | Male, Female, Unknown |
+| `birthdate` | date | Date of birth |
+| `ssn` | text | Social Security Number |
+| `address` | text | Street address |
+| `address2` | text | Address line 2 |
+| `city` | text | City |
+| `state` | text | State |
+| `zip` | text | ZIP code |
+| `hm_phone` | text | Home phone |
+| `wk_phone` | text | Work phone |
+| `wireless_phone` | text | Mobile phone |
+| `email` | text | Email address |
+| `guarantor` | bigint | Guarantor PatNum |
+| `pri_prov` | bigint | Primary provider number |
+| `sec_prov` | bigint | Secondary provider number |
+| `est_balance` | numeric(12,2) | Estimated balance |
+| `bal_0_30` | numeric(12,2) | Balance 0-30 days |
+| `bal_31_60` | numeric(12,2) | Balance 31-60 days |
+| `bal_61_90` | numeric(12,2) | Balance 61-90 days |
+| `bal_over_90` | numeric(12,2) | Balance over 90 days |
+| `bal_total` | numeric(12,2) | Total balance |
+| `created_at` | timestamptz | Record creation time |
+| `updated_at` | timestamptz | Last update time (auto-maintained) |
+
+**Primary Key:** `(clinic_id, pat_num)` — composite key ensures each clinic has its own patient namespace.
+
+**Why it exists:** When a webhook fires for a patient event, the sync service fetches the full patient record from Open Dental and upserts it here. This is the "source of truth" copy in your database.
+
+---
+
+### 3. `appointments` — Appointment Records (Tenant-Scoped)
+
+**Purpose:** Stores appointment data synced from Open Dental.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | FK to `clinics.id` |
+| `apt_num` | bigint (PK part) | Open Dental appointment number |
+| `pat_num` | bigint | FK to patients — which patient |
+| `apt_status` | text | Scheduled, Completed, Broken, etc. |
+| `apt_date_time` | timestamp | Appointment date and time |
+| `prov_num` | bigint | Provider number |
+| `prov_abbr` | text | Provider abbreviation |
+| `op` | bigint | Operatory number |
+| `note` | text | Appointment note |
+| `pattern` | text | Appointment pattern |
+| `confirmed` | bigint | Confirmation status |
+| `is_new_patient` | text | Whether new patient |
+| `proc_descript` | text | Procedure description |
+| `date_time_arrived` | timestamp | When patient arrived |
+| `date_time_seated` | timestamp | When patient was seated |
+| `date_time_dismissed` | timestamp | When patient was dismissed |
+| `ins_plan1` | bigint | Insurance plan 1 |
+| `ins_plan2` | bigint | Insurance plan 2 |
+| `created_at` | timestamptz | Record creation time |
+| `updated_at` | timestamptz | Last update time (auto-maintained) |
+
+**Primary Key:** `(clinic_id, apt_num)`
+
+**Foreign Keys:**
+- `(clinic_id, pat_num)` → `patients(clinic_id, pat_num)` ON DELETE CASCADE
+
+**Why it exists:** Appointments are synced so your app can display schedules, send reminders, or build analytics without calling Open Dental every time.
+
+---
+
+### 4. `documents` — Document Records (Tenant-Scoped)
+
+**Purpose:** Stores document metadata synced from Open Dental (x-rays, treatment plans, etc.).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | FK to `clinics.id` |
+| `doc_num` | bigint (PK part) | Open Dental document number |
+| `pat_num` | bigint | FK to patients — which patient |
+| `description` | text | Document description |
+| `note` | text | Document note |
+| `date_created` | timestamp | When document was created |
+| `doc_category` | bigint | Category number |
+| `file_name` | text | File name |
+| `img_type` | text | Document, X-ray, Photo, etc. |
+| `tooth_numbers` | text | Associated tooth numbers |
+| `prov_num` | bigint | Provider who created it |
+| `created_at` | timestamptz | Record creation time |
+| `updated_at` | timestamptz | Last update time (auto-maintained) |
+
+**Primary Key:** `(clinic_id, doc_num)`
+
+**Foreign Keys:**
+- `(clinic_id, pat_num)` → `patients(clinic_id, pat_num)` ON DELETE CASCADE
+
+**Why it exists:** Lets your app list patient documents without querying Open Dental. The actual file content stays in Open Dental; this table stores metadata only.
+
+---
+
+### 5. `procedure_logs` — Procedure Log Records (Tenant-Scoped)
+
+**Purpose:** Stores procedure/treatment data synced from Open Dental.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | FK to `clinics.id` |
+| `proc_num` | bigint (PK part) | Open Dental procedure number |
+| `pat_num` | bigint | FK to patients — which patient |
+| `apt_num` | bigint | FK to appointments — which appointment |
+| `proc_date` | date | Procedure date |
+| `proc_fee` | numeric(12,2) | Procedure fee |
+| `surf` | text | Surface (e.g., "O", "MOD") |
+| `tooth_num` | text | Tooth number |
+| `proc_status` | text | Complete, Planned, etc. |
+| `prov_num` | bigint | Provider number |
+| `proc_code` | text | Procedure code (e.g., D0120) |
+| `descript` | text | Procedure description |
+| `unit_qty` | integer | Number of units |
+| `proc_time` | text | Procedure start time |
+| `proc_time_end` | text | Procedure end time |
+| `created_at` | timestamptz | Record creation time |
+| `updated_at` | timestamptz | Last update time (auto-maintained) |
+
+**Primary Key:** `(clinic_id, proc_num)`
+
+**Foreign Keys:**
+- `(clinic_id, pat_num)` → `patients(clinic_id, pat_num)` ON DELETE CASCADE
+- `(clinic_id, apt_num)` → `appointments(clinic_id, apt_num)` ON DELETE SET NULL
+
+**Why it exists:** Procedure logs are the core clinical data — treatments performed, planned, or completed. Syncing them enables treatment history views and revenue analytics.
+
+---
+
+### 6. Reference Data Tables (Tenant-Scoped)
+
+These tables hold Open Dental lookups/reference data that the reconciliation
+job reconciles from their webhooks: `pat_fields`, `providers`, `operatories`,
+`schedules`, and `tooth_initials`.
+
+**Primary Key Pattern:** every reference table uses `(clinic_id, <num>)` so each
+tenant gets its own namespace of reference rows. `is_deleted`/`deleted_at`/
+`deleted_by` columns power soft-deletion from the `*Deleted` webhooks and from
+the reconciliation diff (a row present in Supabase but missing from Open Dental
+is soft-deleted).
+
+#### 6a. `pat_fields` — Patient Custom Fields
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | FK to `clinics.id` |
+| `pat_field_num` | bigint (PK part) | Open Dental custom-field number |
+| `pat_num` | bigint | FK to patients — which patient |
+| `field_name` | text | Field name (e.g., PatStatus, DeletedDateTime) |
+| `field_value` | text | Field value |
+| `field_desc` | text | Field description |
+| `field_type` | text | Field type |
+| `clinic_num` | bigint | Open Dental clinic number |
+| `deleted_by` | bigint | Who deleted the field (from PatFieldDeleted) |
+| `deleted_at` | timestamp | When it was deleted |
+| `is_deleted` | boolean | Soft-delete flag |
+| `created_at` / `updated_at` | timestamptz | Audit timestamps |
+
+**Why it exists:** Reconciles the `PatField` and `PatFieldDeleted` webhooks;
+also carries patient lifecycle markers (PatStatus / DeletedDateTime /
+DeletedByUserNum) used to update the linked patient.
+
+### 6b. `providers` — Dentists / Hygienists
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK part) | Tenant |
+| `prov_num` | bigint (PK part) | Open Dental provider number |
+| `abbrev` | text | Provider abbreviation |
+| `f_name` / `l_name` / `suffix` | text | Name parts |
+| `specialty` | text | Specialty |
+| `prov_status` | text | Status (e.g., Active) |
+| `prov_type` | text | Provider type |
+| `clinic_num` | bigint | Open Dental ClinicNum |
+| `created_at` / `updated_at` | timestamptz | Audit timestamps |
+
+**Why it exists:** Reconciles the `Provider` webhook so appointments/procedure
+logs can display provider names without querying Open Dental.
+
+### 6c. `operatories` — Treatment Rooms / Chairs
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK) | FK |
+| `operatory_num` | bigint (PK) | Open Dental operatory number |
+| `abbrev` | text | Short code |
+| `description` | text | Room description |
+| `clinic_num` | bigint | Open Dental ClinicNum |
+| `is_hygiene` / `is_disabled` / `is_web_sched` | text | Flags |
+| `order_value` | bigint | Display order |
+| `created_at` / `updated_at` | timestamptz | Audit timestamps |
+
+**Why it exists:** Reconciles the `Operatory` webhook so appointments can be
+displayed against real operatories.
+
+### 6d. `schedules` — Provider/Operatory Availability
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK) | FK |
+| `schedule_num` | bigint (PK) | Open Dental schedule number |
+| `sched_date` | date | Schedule date |
+| `sched_type_num` | bigint | Schedule type |
+| `prov_num` | bigint | Provider |
+| `clinic_num` | bigint | Open Dental ClinicNum |
+| `start_time` / `stop_time` | text | Time range |
+| `blockout` | text | Blockout flag |
+| `deleted_by` / `deleted_at` / `is_deleted` | — | Soft-delete (ScheduleDeleted) |
+| `created_at` / `updated_at` | timestamptz | Audit timestamps |
+
+**Why it exists:** Reconciles the `Schedule` and `ScheduleDeleted` webhooks;
+a row missing from Open Dental is soft-deleted.
+
+### 6e. `tooth_initials` — Initial Tooth Charting
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clinic_id` | UUID (PK) | FK |
+| `tooth_initial_num` | bigint (PK) | Open Dental tooth-initial number |
+| `pat_num` | bigint | FK to patients |
+| `tooth_num` / `tooth_type` / `tooth_group` / `mobility` | text | Charting fields |
+| `date_t_stamp` | timestamp | Last updated stamp |
+| `deleted_by` / `deleted_at` / `is_deleted` | — | Soft-delete (ToothInitialDeleted) |
+| `created_at` / `updated_at` | timestamptz | Audit timestamps |
+
+**Why it exists:** Reconciles the `ToothInitial` and `ToothInitialDeleted`
+webhooks; a missing row is soft-deleted.
+
+---
+
+### 7. `webhook_events` — Webhook Audit Log
+
+**Purpose:** Tracks every inbound webhook event from Open Dental for debugging and auditing.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID (PK) | Unique event ID |
+| `clinic_id` | UUID | FK to `clinics.id` — which clinic |
+| `watch_table` | text | Which table triggered: Patient, Appointment, etc. |
+| `event_type` | text | created, updated, deleted, upsert |
+| `payload` | jsonb | Raw webhook payload from Open Dental |
+| `status` | text | received, processed, failed |
+| `error_message` | text | Error details if processing failed |
+| `processed_at` | timestamptz | When the event was processed |
+| `created_at` | timestamptz | When the event was received |
+
+**Why it exists:** If a webhook fails or data is missing, you can check this table to see what was received and what went wrong. Essential for debugging sync issues.
+
+---
+
+### 7. `sync_runs` — Sync Job Tracking
+
+**Purpose:** Tracks every sync operation (initial load, webhook-triggered, or scheduled reconciliation).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID (PK) | Unique sync run ID |
+| `clinic_id` | UUID | FK to `clinics.id` — which clinic |
+| `sync_type` | text | initial, webhook, or reconciliation |
+| `entity_type` | text | patient, appointment, document, procedurelog, patfield, schedule, toothinitial, provider, operatory, all |
+| `total_found` | integer | Records found in Open Dental |
+| `total_synced` | integer | Records successfully synced |
+| `total_failed` | integer | Records that failed to sync |
+| `status` | text | running, completed, failed |
+| `error_message` | text | Error details if failed |
+| `started_at` | timestamptz | When sync started |
+| `completed_at` | timestamptz | When sync completed |
+
+**Why it exists:** Provides visibility into sync health. You can see how long syncs take, how many records were processed, and whether any failed.
+
+---
+
+## Row Level Security (RLS)
+
+All tables have RLS enabled. This ensures **tenant isolation** — each clinic can only access its own data.
+
+### How RLS Works
+
+```
+┌──────────────────────────────────────────────────┐
+│  Clinic A user (JWT with clinic_id = A)          │
+│  → Can only SELECT/INSERT/UPDATE rows where       │
+│    clinic_id = A                                  │
+│                                                   │
+│  Clinic B user (JWT with clinic_id = B)          │
+│  → Can only SELECT/INSERT/UPDATE rows where       │
+│    clinic_id = B                                  │
+│                                                   │
+│  Spring Boot service role                         │
+│  → Bypasses RLS (auth.uid() is null)              │
+│  → Can access all clinics' data                   │
+└──────────────────────────────────────────────────┘
+```
+
+### RLS Policy Pattern
+
+Each table has SELECT, INSERT, and UPDATE policies:
+
+```sql
+-- Example: patients SELECT policy
+create policy patients_select_policy on public.patients
+  for select
+  using (
+    auth.uid() is null                                    -- service role bypasses
+    or clinic_id = (auth.jwt() ->> 'clinic_id')::uuid     -- tenant can only see own rows
+  );
+```
+
+---
+
+## Views
+
+### `v_clinic_patient_counts`
+
+Returns patient count per clinic — useful for SaaS dashboard analytics.
+
+```sql
+select * from v_clinic_patient_counts;
+-- Result:
+-- clinic_code | clinic_name           | patient_count
+-- CLINIC_A    | Clinic A - Downtown   | 15423
+-- CLINIC_B    | Clinic B - Uptown     | 8721
+-- CLINIC_C    | Clinic C - Suburb     | 342
+```
+
+### `v_clinic_activity`
+
+Returns clinics ordered by most recent activity (sync or webhook).
+
+```sql
+select * from v_clinic_activity;
+-- Result:
+-- clinic_code | clinic_name           | is_active | last_sync_at          | last_webhook_at       | subscription_tier
+-- CLINIC_A    | Clinic A - Downtown   | true      | 2026-08-02 02:00:00  | 2026-08-02 09:45:12  | enterprise
+-- CLINIC_B    | Clinic B - Uptown     | true      | 2026-08-02 02:00:00  | 2026-08-02 08:30:00  | pro
+-- CLINIC_C    | Clinic C - Suburb     | true      | 2026-08-02 02:00:00  | (null)               | free
+```
+
+---
+
+## Triggers
+
+### `set_updated_at()`
+
+A shared trigger function that automatically updates the `updated_at` column on any row update.
+
+Applied to all tables:
+- `clinics_updated_at`
+- `patients_updated_at`
+- `appointments_updated_at`
+- `documents_updated_at`
+- `procedure_logs_updated_at`
+
+```sql
+-- Automatically fires before any UPDATE
+create trigger patients_updated_at
+  before update on public.patients
+  for each row
+  execute function public.set_updated_at();
+```
+
+---
+
+## Entity Relationships
+
+```
+clinics (1)
+  │
+  ├──(1:N)── patients (clinic_id, pat_num)
+  │              │
+  │              ├──(1:N)── appointments (clinic_id, apt_num)
+  │              │              │
+  │              │              └──(1:N)── procedure_logs (clinic_id, proc_num)
+  │              │
+  │              ├──(1:N)── documents (clinic_id, doc_num)
+  │              │
+  │              └──(1:N)── procedure_logs (clinic_id, proc_num)
+  │
+  ├──(1:N)── webhook_events
+  │
+  └──(1:N)── sync_runs
+```
+
+**Key design decisions:**
+1. **Composite primary keys** `(clinic_id, entity_num)` — each clinic has its own Open Dental ID namespace
+2. **Composite foreign keys** — relationships are scoped within a clinic
+3. **CASCADE deletes** — deleting a clinic removes all its data; deleting a patient removes their appointments/documents/procedures
+4. **SET NULL for procedure_logs → appointments** — if an appointment is deleted, the procedure log retains its data but loses the appointment link
+
+---
+
+## How to Apply the Schema
+
+### Upgrading an existing database (IMPORTANT)
+
+`create table if not exists` will **never update tables that already exist**. If you
+ran an older version of this schema (or the legacy per-table files), your tables use
+single-column primary keys (`pat_num`), have no `clinic_id` column, and no
+`subscription_tier` / `max_patients` fields. Re-running the consolidated file
+"passes" but leaves those tables unchanged, because PostgreSQL only checks the table
+**name** — it ignores any added/changed columns, composite keys, or foreign keys.
+
+To apply the new structure you must drop the old tables first, then re-create them:
+
+### Option 1: Supabase SQL Editor (reset + recreate)
+1. Open Supabase Dashboard → SQL Editor
+2. Paste the contents of `supabase-reset-schema.sql`  →  Click "Run" (drops the old tables/views)
+3. Paste the contents of `supabase-multitenant-schema.sql` → Click "Run" (creates the new structure + seed)
+
+> ⚠️ **Reset is destructive** — only run it on a dev/test database or one you can re-seed.
+> It drops every table managed by the multi-tenant schema. Rerunning the consolidated
+> SQL restores the three sample clinics (A/B/C).
+
+### Option 2: Supabase CLI
+```bash
+supabase db push --file supabase-multitenant-schema.sql
+```
+
+### Option 3: psql
+```bash
+psql "postgresql://user:password@db.supabase.co:5432/postgres" \
+  -f supabase-multitenant-schema.sql
+```
+
+The script is **idempotent** — safe to run multiple times (uses `create table if not exists`, `drop policy if exists`, `create or replace`).
+
+---
+
+## Seed Data
+
+Three sample clinics are inserted for testing:
+
+| Clinic Code | Name | Tier | Max Patients | Base URL |
+|-------------|------|------|--------------|----------|
+| `CLINIC_A` | Clinic A - Downtown | enterprise | 100,000 | `https://opendental-a.example.com/api/v1` |
+| `CLINIC_B` | Clinic B - Uptown | pro | 50,000 | `https://opendental-b.example.com/api/v1` |
+| `CLINIC_C` | Clinic C - Suburb | free | 1,000 | `https://opendental-c.example.com/api/v1` |
+
+---
+
+## File Reference
+
+| File | Description |
+|------|-------------|
+| `supabase-multitenant-schema.sql` | **Consolidated migration** — all tables, RLS, triggers, views, seed data |
+| `supabase-clinics-schema.sql` | Standalone clinics table (legacy) |
+| `supabase-patients-schema.sql` | Standalone patients table (legacy) |
+| `supabase-appointments-schema.sql` | Standalone appointments table (legacy) |
+| `supabase-documents-schema.sql` | Standalone documents table (legacy) |
+| `supabase-procedurelogs-schema.sql` | Standalone procedure_logs table (legacy) |
+
+> **Note:** Use `supabase-multitenant-schema.sql` for new deployments. The individual files are kept for reference but the consolidated file supersedes them.

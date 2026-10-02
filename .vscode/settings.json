@@ -1,0 +1,15 @@
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.debug.settings.console": "internalConsole",
+    "java.debug.settings.showHex": false,
+    "java.debug.settings.showStaticVariables": false,
+    "java.debug.settings.showQualifiedNames": false,
+    "maven.view": "flat",
+    "files.exclude": {
+        "**/.classpath": true,
+        "**/.project": true,
+        "**/.settings": true,
+        "**/.factorypath": true
+    }
+}
