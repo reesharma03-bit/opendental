@@ -1,13 +1,13 @@
 export const API_SPEC_URL = 'https://www.opendental.com/site/apispecification.html';
 
 const resourceNames = [
-  'AccountModules', 'Adjustments', 'Allergies', 'AllergyDefs', 'Appointments', 'AppointmentTypes',
+  'Allergies', 'AllergyDefs', 'Appointments', 'AppointmentTypes',
   'ApptFields', 'ApptFieldDefs', 'AsapComms', 'AutoNoteControls', 'AutoNotes', 'Benefits',
   'Carriers', 'ChartModules', 'ClaimForms', 'ClaimPayments', 'ClaimProcs', 'Claims',
   'ClaimTrackings', 'Clinics', 'ClockEvents', 'CodeGroups', 'Commlogs', 'Computers',
   'CovCats', 'CovSpans', 'Deposits', 'Definitions', 'DiscountPlans', 'DiscountPlanSubs',
   'DiseaseDefs', 'Diseases', 'Documents', 'EhrPatients', 'EobAttaches', 'Employees',
-  'Employers', 'EtransMessageTexts', 'Etranss', 'FamilyModules', 'Fees', 'FeeScheds',
+  'Employers', 'Etrans', 'EtransMessageTexts', 'Etranss', 'FamilyModules', 'Fees', 'FeeScheds',
   'Guardians', 'HistAppointments', 'InsPlans', 'InsSubs', 'InsVerifies', 'LabCases',
   'Laboratories', 'LabTurnarounds', 'MedicationPats', 'Medications', 'Operatories',
   'PatFieldDefs', 'PatFields', 'PatientNotes', 'PatientRaces', 'Patients', 'PatPlans',

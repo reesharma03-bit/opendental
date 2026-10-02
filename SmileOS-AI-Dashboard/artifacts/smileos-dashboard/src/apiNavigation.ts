@@ -29,7 +29,7 @@ export const apiNavigationGroups = [
   {
     label: 'Insurance & Billing',
     resources: [
-      'Adjustments', 'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
+      'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
       'ClaimProcs', 'Claims', 'ClaimTrackings', 'CovCats', 'CovSpans',
       'Deposits', 'DiscountPlans', 'DiscountPlanSubs', 'EobAttaches', 'Fees',
       'FeeScheds', 'InsPlans', 'InsSubs', 'InsVerifies', 'Payments',
@@ -40,14 +40,14 @@ export const apiNavigationGroups = [
   {
     label: 'Communications & Documents',
     resources: [
-      'Commlogs', 'Documents', 'EtransMessageTexts', 'Etranss',
+      'Commlogs', 'Documents', 'Etrans', 'EtransMessageTexts', 'Etranss',
       'RefAttaches', 'Referrals', 'Subscriptions',
     ],
   },
   {
     label: 'Office & Practice Setup',
     resources: [
-      'AccountModules', 'Clinics', 'Computers', 'Definitions', 'Employees',
+      'Clinics', 'Computers', 'Definitions', 'Employees',
       'Employers', 'LabCases', 'Laboratories', 'LabTurnarounds', 'Providers',
     ],
   },
