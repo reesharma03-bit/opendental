@@ -10,7 +10,7 @@ import { createBackendPatient, listBackendPatients, mapBackendPatient, type Back
 function toRecord(p: BackendPatient): PatientRecord {
   return {
     id: `P-${p.patNum}`,
-    FName: p.firstName, LName: p.lastName, MiddleI: '', Preferred: '',
+    FName: p.firstName, LName: p.lastName, MiddleI: p.middleInitial, Preferred: p.preferred,
     PatStatus: p.status || 'Patient', Gender: p.gender, Position: '',
     Birthdate: (p.birthdate || '').slice(0, 10),
     Address: p.address, Address2: p.address2, City: p.city, State: p.state, Zip: p.zip,
@@ -117,8 +117,8 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     setSyncing(true);
     listBackendPatients('')
       .then((rows) => {
-        if (!live || rows.length === 0) return;
-        setPatients(rows.map(toRecord));
+        if (!live) return;
+        if (rows.length > 0) setPatients(rows.map(toRecord));
         setBackendOn(true);
         setBackendError('');
       })
@@ -201,7 +201,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     announce('Changes discarded. No patient record was changed.');
   };
 
-  const savePatient = (event: FormEvent<HTMLFormElement>) => {
+  const savePatient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!draft.FName.trim()) nextErrors.FName = 'First name is required.';
@@ -266,6 +266,11 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-patients">
+      {(syncing || saving || backendError) && (
+        <div data-testid="patients-backend-status" className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-semibold ${backendError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+          {syncing ? 'Syncing patients from clinic server…' : saving ? 'Saving patient to clinic server…' : `Clinic server error — ${backendError} (showing sample data).`}
+        </div>
+      )}
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><Users size={13} className="text-blue-500" /> PRACTICE DIRECTORY</p>

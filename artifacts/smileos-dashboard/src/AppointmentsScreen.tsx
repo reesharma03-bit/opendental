@@ -3,6 +3,30 @@ import {
   CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert,
   Clock3, Pencil, Plus, Search, ShieldAlert, X,
 } from 'lucide-react';
+import { backendAvailable } from './lib/backend';
+import {
+  createBackendAppointment, listBackendAppointments, type BackendAppointment,
+} from './lib/backendAppointments';
+
+const knownStatuses: AppointmentRecord['AptStatus'][] = [
+  'Scheduled', 'Complete', 'UnschedList', 'Broken', 'Planned', 'PtNote', 'PtNoteCompleted',
+];
+
+const toAppointmentRecord = (b: BackendAppointment): AppointmentRecord => ({
+  AptNum: b.aptNum,
+  PatNum: b.patNum,
+  AptStatus: (knownStatuses.find((s) => s.toLowerCase() === b.status.toLowerCase())
+    ?? 'Scheduled') as AppointmentRecord['AptStatus'],
+  Pattern: b.pattern || '/XX/',
+  Note: b.note,
+  Op: b.op,
+  ProvNum: b.provNum,
+  // datetime-local inputs want "YYYY-MM-DDTHH:mm"; backend may send a space or seconds.
+  AptDateTime: b.dateTime ? b.dateTime.replace(' ', 'T').slice(0, 16) : '',
+  IsHygiene: /hygien/i.test(b.procDescript),
+  IsNewPatient: b.isNewPatient === 'Y' || b.isNewPatient === 'true',
+  Priority: b.priority === 'ASAP' ? 'ASAP' : 'Normal',
+});
 
 export type AppointmentRecord = {
   AptNum: number;
@@ -87,6 +111,24 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
   createRequest: number;
 }) {
   const [records, setRecords] = useState<AppointmentRecord[]>(initialAppointments);
+  const [backendOn, setBackendOn] = useState(false);
+  const [backendError, setBackendError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedAptId, setSavedAptId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!backendAvailable()) return;
+    let live = true;
+    listBackendAppointments()
+      .then((rows) => {
+        if (!live) return;
+        if (rows.length > 0) setRecords(rows.map(toAppointmentRecord));
+        setBackendOn(true);
+        setBackendError('');
+      })
+      .catch((e: Error) => { if (live) setBackendError(e.message); });
+    return () => { live = false; };
+  }, []);
   const [editing, setEditing] = useState<AppointmentRecord | null>(null);
   const [draft, setDraft] = useState<AppointmentDraft>(emptyDraft());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -129,7 +171,7 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
     setErrors({});
     announce('Changes discarded. No appointment record was changed.');
   };
-  const saveAppointment = (event: FormEvent<HTMLFormElement>) => {
+  const saveAppointment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!draft.PatNum) nextErrors.PatNum = 'Choose a sample patient.';
@@ -148,6 +190,34 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
     if (editing) {
       setRecords((current) => current.map((item) => item.AptNum === editing.AptNum ? { ...normalized, AptNum: editing.AptNum } : item));
       announce(`Appointment ${editing.AptNum} updated in this sample only.`);
+    } else if (backendOn) {
+      setSaving(true);
+      try {
+        const saved = await createBackendAppointment({
+          PatNum: normalized.PatNum,
+          AptDateTime: normalized.AptDateTime.replace('T', ' '),
+          Op: normalized.Op,
+          AptStatus: normalized.AptStatus,
+          Pattern: normalized.Pattern,
+          Note: normalized.Note,
+          ProvNum: normalized.ProvNum,
+        });
+        const record = toAppointmentRecord(saved);
+        setRecords((current) => [record, ...current]);
+        setCurrentPage(1);
+        setSavedAptId(record.AptNum);
+        setBackendError('');
+        announce(`Appointment ${record.AptNum} created on the server.`);
+      } catch (e) {
+        setBackendError((e as Error).message);
+        const AptNum = Math.max(0, ...records.map((item) => item.AptNum)) + 1;
+        setRecords((current) => [{ ...normalized, AptNum }, ...current]);
+        setCurrentPage(1);
+        setSavedAptId(AptNum);
+        announce(`Server create failed — ${(e as Error).message}. Saved locally instead.`);
+      } finally {
+        setSaving(false);
+      }
     } else {
       const AptNum = Math.max(0, ...records.map((item) => item.AptNum)) + 1;
       setRecords((current) => [{ ...normalized, AptNum }, ...current]);
@@ -162,6 +232,11 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-appointments">
+      {(saving || backendError) && (
+        <div data-testid="appointments-backend-status" className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-semibold ${backendError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+          {saving ? 'Saving appointment to clinic server…' : `Clinic server error — ${backendError} (showing sample data).`}
+        </div>
+      )}
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><CalendarDays size={13} className="text-blue-500" /> PRACTICE SCHEDULE</p>

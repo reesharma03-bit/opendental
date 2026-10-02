@@ -5,6 +5,8 @@ export interface BackendPatient {
   patNum: number;
   firstName: string;
   lastName: string;
+  middleInitial: string;
+  preferred: string;
   birthdate: string;
   gender: string;
   email: string;
@@ -30,6 +32,8 @@ export function mapBackendPatient(raw: Raw): BackendPatient {
     patNum: pickNum(raw, 'pat_num', 'patNum', 'PatNum') ?? 0,
     firstName: pick(raw, 'f_name', 'fname', 'fName', 'FName'),
     lastName: pick(raw, 'l_name', 'lname', 'lName', 'LName'),
+    middleInitial: pick(raw, 'middle_i', 'middleI', 'middlei', 'MiddleI'),
+    preferred: pick(raw, 'preferred', 'Preferred'),
     birthdate: pick(raw, 'birthdate', 'Birthdate'),
     gender: pick(raw, 'gender', 'Gender'),
     email: pick(raw, 'email', 'Email'),
@@ -64,11 +68,33 @@ export async function listBackendPatients(search: string): Promise<BackendPatien
 }
 
 export async function createBackendPatient(input: Record<string, string>): Promise<BackendPatient> {
-  const body: Record<string, string> = {};
+  const src: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) {
-    if (v !== undefined && v !== null && String(v).trim() !== '') body[k] = String(v);
+    if (v !== undefined && v !== null && String(v).trim() !== '') src[k] = String(v);
   }
-  if (body.phone) { body.WirelessPhone = body.phone; delete body.phone; }
-  if (body.birthdate) { body.Birthdate = body.birthdate; delete body.birthdate; }
+  // The REST API binds snake_case (global SNAKE_CASE strategy), but we also send
+  // camel/Pascal variants per field so the body still binds if naming changes;
+  // Spring ignores unknown keys.
+  const body: Record<string, string> = {};
+  const set = (value: string | undefined, ...keys: string[]) => {
+    if (!value) return;
+    keys.forEach((k) => (body[k] = value));
+  };
+  set(src.firstName, 'fname', 'f_name', 'FName');
+  set(src.lastName, 'lname', 'l_name', 'LName');
+  set(src.middleName, 'middle_i', 'middleI', 'MiddleI');
+  set(src.preferredName, 'preferred', 'Preferred');
+  set(src.birthdate, 'birthdate', 'Birthdate');
+  set(src.gender, 'gender', 'Gender');
+  set(src.status, 'pat_status', 'patStatus', 'PatStatus');
+  set(src.phone, 'wireless_phone', 'wirelessPhone', 'WirelessPhone');
+  set(src.homePhone, 'hm_phone', 'hmPhone', 'HmPhone');
+  set(src.email, 'email', 'Email');
+  set(src.address, 'address', 'Address');
+  set(src.address2, 'address2', 'Address2');
+  set(src.city, 'city', 'City');
+  set(src.state, 'state', 'State');
+  set(src.zip, 'zip', 'Zip');
+  set(src.preferContactMethod, 'prefer_contact_method', 'preferContactMethod', 'PreferContactMethod');
   return mapBackendPatient(await request<Raw>('/api/patients', { method: 'POST', body: JSON.stringify(body) }));
 }

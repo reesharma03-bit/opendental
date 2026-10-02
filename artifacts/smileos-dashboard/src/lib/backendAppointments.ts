@@ -54,5 +54,21 @@ export interface CreateAppointmentBody {
 }
 
 export async function createBackendAppointment(body: CreateAppointmentBody): Promise<BackendAppointment> {
-  return mapBackendAppointment(await request<Raw>('/api/appointments', { method: 'POST', body: JSON.stringify(body) }));
+  // Send snake_case (what the global SNAKE_CASE strategy binds) plus the
+  // PascalCase originals so either naming convention deserializes.
+  const payload: Record<string, unknown> = {};
+  const set = (value: unknown, ...keys: string[]) => {
+    if (value === undefined || value === null) return;
+    keys.forEach((k) => (payload[k] = value));
+  };
+  set(body.PatNum, 'pat_num', 'PatNum');
+  set(body.AptDateTime, 'apt_date_time', 'AptDateTime');
+  set(body.Op, 'op', 'Op');
+  set(body.AptStatus, 'apt_status', 'AptStatus');
+  set(body.Pattern, 'pattern', 'Pattern');
+  set(body.Note, 'note', 'Note');
+  set(body.ProvNum, 'prov_num', 'ProvNum');
+  set(body.ClinicNum, 'clinic_num', 'ClinicNum');
+  set(body.Confirmed, 'confirmed', 'Confirmed');
+  return mapBackendAppointment(await request<Raw>('/api/appointments', { method: 'POST', body: JSON.stringify(payload) }));
 }
