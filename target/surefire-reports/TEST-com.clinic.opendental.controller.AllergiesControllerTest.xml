@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.clinic.opendental.controller.ApiPatientsControllerTest" time="3.787" tests="6" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.clinic.opendental.controller.AllergiesControllerTest" time="0.508" tests="7" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="19"/>
     <property name="sun.jnu.encoding" value="UTF-8"/>
@@ -61,9 +61,9 @@
     <property name="CONSOLE_LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
     <property name="LOGGED_APPLICATION_NAME" value="[open-dental-api] "/>
   </properties>
-  <testcase name="createPatientReturnsCreatedResponseAndLocationHeader" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.361">
-    <system-out><![CDATA[11:12:37.946 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.clinic.opendental.controller.ApiPatientsControllerTest]: ApiPatientsControllerTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
-11:12:38.166 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.clinic.opendental.OpenDentalApiApplication for test class com.clinic.opendental.controller.ApiPatientsControllerTest
+  <testcase name="rejectsCreateWithoutPatientOrAllergyDefinition" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.017">
+    <system-out><![CDATA[2026-10-02 11:12:42.203 [main] INFO  o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.clinic.opendental.controller.AllergiesControllerTest]: AllergiesControllerTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-02 11:12:42.228 [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.clinic.opendental.OpenDentalApiApplication for test class com.clinic.opendental.controller.AllergiesControllerTest
 
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
@@ -74,17 +74,18 @@
 
  :: Spring Boot ::                (v3.3.5)
 
-2026-10-02 11:12:38.777 [main] INFO  c.c.o.c.ApiPatientsControllerTest - Starting ApiPatientsControllerTest using Java 19.0.2 with PID 3724 (started by runner in /home/runner/workspace)
-2026-10-02 11:12:38.778 [main] INFO  c.c.o.c.ApiPatientsControllerTest - No active profile set, falling back to 1 default profile: "default"
-2026-10-02 11:12:41.108 [main] INFO  o.s.b.t.m.w.SpringBootMockServletContext - Initializing Spring TestDispatcherServlet ''
-2026-10-02 11:12:41.108 [main] INFO  o.s.t.w.s.TestDispatcherServlet - Initializing Servlet ''
-2026-10-02 11:12:41.110 [main] INFO  o.s.t.w.s.TestDispatcherServlet - Completed initialization in 1 ms
-2026-10-02 11:12:41.134 [main] INFO  c.c.o.c.ApiPatientsControllerTest - Started ApiPatientsControllerTest in 2.855 seconds (process running for 4.157)
+2026-10-02 11:12:42.287 [main] INFO  c.c.o.c.AllergiesControllerTest - Starting AllergiesControllerTest using Java 19.0.2 with PID 3724 (started by runner in /home/runner/workspace)
+2026-10-02 11:12:42.287 [main] INFO  c.c.o.c.AllergiesControllerTest - No active profile set, falling back to 1 default profile: "default"
+2026-10-02 11:12:42.620 [main] INFO  o.s.b.t.m.w.SpringBootMockServletContext - Initializing Spring TestDispatcherServlet ''
+2026-10-02 11:12:42.621 [main] INFO  o.s.t.w.s.TestDispatcherServlet - Initializing Servlet ''
+2026-10-02 11:12:42.621 [main] INFO  o.s.t.w.s.TestDispatcherServlet - Completed initialization in 0 ms
+2026-10-02 11:12:42.630 [main] INFO  c.c.o.c.AllergiesControllerTest - Started AllergiesControllerTest in 0.399 seconds (process running for 5.654)
 ]]></system-out>
   </testcase>
-  <testcase name="getSinglePatientReturnsSamplePatient" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.009"/>
-  <testcase name="deletePatientIsRejectedByApi" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.007"/>
-  <testcase name="updatePatientReturnsUpdatedFields" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.019"/>
-  <testcase name="getMultiplePatientsFiltersBySearchCriteria" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.012"/>
-  <testcase name="getSimplePatientsIncludesServerDateTimeAndBalanceFields" classname="com.clinic.opendental.controller.ApiPatientsControllerTest" time="0.008"/>
+  <testcase name="listsAllergiesAndForwardsThePatientFilter" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.01"/>
+  <testcase name="updatesSupportedFieldsUsingOpenDentalNames" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.01"/>
+  <testcase name="getsAnAllergyById" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.007"/>
+  <testcase name="createsAllergyAndReturnsLocation" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.007"/>
+  <testcase name="deletesAllergy" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.006"/>
+  <testcase name="rejectsUnsupportedOrInvalidUpdates" classname="com.clinic.opendental.controller.AllergiesControllerTest" time="0.007"/>
 </testsuite>

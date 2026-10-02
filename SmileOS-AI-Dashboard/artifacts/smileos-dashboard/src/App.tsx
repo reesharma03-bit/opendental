@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import AppointmentsScreen from './AppointmentsScreen';
 import ApiCatalogScreen from './ApiCatalogScreen';
+import AllergiesScreen from './AllergiesScreen';
 import PatientsScreen from './PatientsScreen';
 import { apiNavigationGroups, formatApiResourceName } from './apiNavigation';
 
@@ -335,9 +336,11 @@ function App() {
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
         </div>
-        <div hidden={activeNav !== 'API Catalog'}>
-          <ApiCatalogScreen selectedResource={selectedApiResource} />
-        </div>
+        {activeNav === 'API Catalog' && (
+          selectedApiResource === 'Allergies'
+            ? <AllergiesScreen />
+            : <ApiCatalogScreen selectedResource={selectedApiResource} />
+        )}
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
     </div>

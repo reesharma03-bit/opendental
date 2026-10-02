@@ -47,5 +47,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* non-JSON error body */ }
     throw new Error(message);
   }
-  return (await res.json()) as T;
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (undefined as T);
 }

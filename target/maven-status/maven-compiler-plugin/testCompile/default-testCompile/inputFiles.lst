@@ -1,3 +1,4 @@
+/home/runner/workspace/src/test/java/com/clinic/opendental/controller/AllergiesControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/ApiPatientsControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/controller/OpenDentalWebhookControllerTest.java
 /home/runner/workspace/src/test/java/com/clinic/opendental/dto/appointment/AppointmentResponseDeserializationTest.java

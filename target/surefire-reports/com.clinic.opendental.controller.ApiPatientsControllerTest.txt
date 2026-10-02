@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.clinic.opendental.controller.ApiPatientsControllerTest
 -------------------------------------------------------------------------------
-Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.383 s -- in com.clinic.opendental.controller.ApiPatientsControllerTest
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.787 s -- in com.clinic.opendental.controller.ApiPatientsControllerTest

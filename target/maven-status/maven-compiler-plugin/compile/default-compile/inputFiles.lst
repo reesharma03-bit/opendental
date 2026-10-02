@@ -3,6 +3,7 @@
 /home/runner/workspace/src/main/java/com/clinic/opendental/config/CorsConfig.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/config/OpenApiConfig.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/config/RestTemplateConfig.java
+/home/runner/workspace/src/main/java/com/clinic/opendental/controller/AllergiesController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/ApiPatientsController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/AppointmentController.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/controller/DocumentsController.java
@@ -93,8 +94,10 @@
 /home/runner/workspace/src/main/java/com/clinic/opendental/repository/ref/ScheduleRepository.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/repository/ref/ToothInitialRepository.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/scheduler/ReconciliationScheduler.java
+/home/runner/workspace/src/main/java/com/clinic/opendental/service/AllergyService.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/service/AppointmentService.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/service/DocumentService.java
+/home/runner/workspace/src/main/java/com/clinic/opendental/service/Impl/AllergyServiceImpl.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/service/Impl/AppointmentServiceImpl.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/service/Impl/DocumentServiceImpl.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/service/Impl/PatientServiceImpl.java

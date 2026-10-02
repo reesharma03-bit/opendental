@@ -65,6 +65,10 @@ public class OpenDentalClient {
             new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<List<ToothInitialResponse>> TOOTH_INITIAL_LIST =
             new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<List<Map<String, Object>>> ALLERGY_LIST =
+            new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<Map<String, Object>> ALLERGY_MAP =
+            new ParameterizedTypeReference<>() {};
 
 
     /**
@@ -1004,5 +1008,49 @@ public class OpenDentalClient {
         ResponseEntity<List<ToothInitialResponse>> response = restTemplate.exchange(
                 builder.toUriString(), HttpMethod.GET, entity, TOOTH_INITIAL_LIST);
         return response.getBody();
+    }
+
+    // ========================================================================
+    // Allergy endpoints
+    // ========================================================================
+
+    public List<Map<String, Object>> getAllergies(Map<String, String> params) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(
+                resolveBaseUrl(null) + "/allergies");
+        params.forEach(builder::queryParam);
+        return restTemplate.exchange(
+                builder.toUriString(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
+    }
+
+    public Map<String, Object> getAllergy(Long allergyNum) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergies/" + allergyNum,
+                HttpMethod.GET,
+                null,
+                ALLERGY_MAP).getBody();
+    }
+
+    public Map<String, Object> createAllergy(Map<String, Object> request) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergies",
+                HttpMethod.POST,
+                new HttpEntity<>(request),
+                ALLERGY_MAP).getBody();
+    }
+
+    public Map<String, Object> updateAllergy(Long allergyNum, Map<String, Object> request) {
+        return restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergies/" + allergyNum,
+                HttpMethod.PUT,
+                new HttpEntity<>(request),
+                ALLERGY_MAP).getBody();
+    }
+
+    public void deleteAllergy(Long allergyNum) {
+        restTemplate.exchange(
+                resolveBaseUrl(null) + "/allergies/" + allergyNum,
+                HttpMethod.DELETE,
+                null,
+                Void.class);
     }
 }
