@@ -1,0 +1,17 @@
+package com.clinic.opendental.repository;
+
+import com.clinic.opendental.model.Document;
+import com.clinic.opendental.model.DocumentId;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface DocumentRepository extends JpaRepository<Document, DocumentId> {
+
+    List<Document> findByIdClinicIdAndIdDocNum(UUID clinicId, Long docNum);
+
+    List<Document> findByIdClinicId(UUID clinicId);
+}
