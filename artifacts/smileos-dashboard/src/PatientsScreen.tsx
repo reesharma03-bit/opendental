@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowUpRight, CalendarDays, Check, ChevronDown, CircleAlert, Mail,
+  ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Mail,
   MapPin, Pencil, Plus, Search, ShieldAlert, Smartphone,
   Users, X,
 } from 'lucide-react';
@@ -77,6 +77,7 @@ const fieldGroups = [
 ];
 
 const inputClass = 'mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
+const PATIENTS_PER_PAGE = 5;
 
 export default function PatientsScreen({ search, onSearchChange, announce, createRequest }: {
   search: string;
@@ -90,10 +91,34 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const visiblePatients = useMemo(() => patients.filter((patient) =>
     `${patient.FName} ${patient.MiddleI} ${patient.LName} ${patient.Preferred} ${patient.id} ${patient.Email} ${patient.WirelessPhone}`
       .toLowerCase().includes(search.trim().toLowerCase())), [patients, search]);
+  const pageCount = Math.max(1, Math.ceil(visiblePatients.length / PATIENTS_PER_PAGE));
+  const displayedPage = Math.min(currentPage, pageCount);
+  const pagePatients = visiblePatients.slice(
+    (displayedPage - 1) * PATIENTS_PER_PAGE,
+    displayedPage * PATIENTS_PER_PAGE,
+  );
+  const firstPatientNumber = visiblePatients.length === 0
+    ? 0
+    : (displayedPage - 1) * PATIENTS_PER_PAGE + 1;
+  const lastPatientNumber = Math.min(displayedPage * PATIENTS_PER_PAGE, visiblePatients.length);
+  const pageWindowStart = Math.max(1, Math.min(displayedPage - 2, pageCount - 4));
+  const pageNumbers = Array.from(
+    { length: Math.min(5, pageCount) },
+    (_, index) => pageWindowStart + index,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
 
   const openCreate = () => {
     setEditing(null);
@@ -144,6 +169,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     } else {
       const newId = `P-${String(Math.floor(10000 + Math.random() * 89999))}`;
       setPatients((current) => [{ ...normalized, id: newId }, ...current]);
+      setCurrentPage(1);
       setSavedId(newId);
       announce(`${normalized.FName} ${normalized.LName} added to this sample list.`);
     }
@@ -179,7 +205,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
           <table className="w-full min-w-[760px] border-collapse text-left">
             <thead><tr className="border-b border-slate-100 bg-slate-50/65 text-[9px] font-bold uppercase tracking-[.8px] text-slate-400"><th className="px-5 py-3 sm:px-6">Patient</th><th className="px-3 py-3">Patient ID</th><th className="px-3 py-3">Contact</th><th className="px-3 py-3">Location</th><th className="px-3 py-3">Status</th><th className="px-5 py-3 text-right sm:px-6">Action</th></tr></thead>
             <tbody>
-              {visiblePatients.map((patient, index) => <tr key={patient.id} className={`border-b border-slate-100/80 last:border-0 transition hover:bg-slate-50/60 ${savedId === patient.id ? 'bg-emerald-50/30' : ''}`} data-testid={`row-patient-record-${patient.id}`}>
+              {pagePatients.map((patient, index) => <tr key={patient.id} className={`border-b border-slate-100/80 last:border-0 transition hover:bg-slate-50/60 ${savedId === patient.id ? 'bg-emerald-50/30' : ''}`} data-testid={`row-patient-record-${patient.id}`}>
                 <td className="px-5 py-3.5 sm:px-6"><div className="flex items-center gap-2.5"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${['bg-sky-100 text-sky-700', 'bg-violet-100 text-violet-700', 'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700', 'bg-emerald-100 text-emerald-700'][index % 5]}`}>{initials(patient)}</span><div className="min-w-0"><p className="truncate text-[11px] font-bold text-slate-700" data-testid={`text-patient-name-${patient.id}`}>{patientName(patient)}</p><p className="mt-0.5 text-[9px] text-slate-400">{patient.Gender || 'Gender not specified'}{patient.Birthdate ? ` · ${new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${patient.Birthdate}T00:00:00`))}` : ''}</p></div></div></td>
                 <td className="px-3 py-3"><span className="rounded-md bg-slate-50 px-2 py-1 font-mono text-[10px] font-semibold text-slate-500" data-testid={`text-patient-id-${patient.id}`}>{patient.id}</span></td>
                 <td className="px-3 py-3"><div className="space-y-1">{patient.WirelessPhone && <p className="flex items-center gap-1.5 text-[10px] text-slate-600"><Smartphone size={11} className="text-slate-400" />{patient.WirelessPhone}</p>}{patient.Email && <p className="flex items-center gap-1.5 text-[10px] text-slate-500"><Mail size={11} className="text-slate-400" /><span className="max-w-[180px] truncate">{patient.Email}</span></p>}{!patient.WirelessPhone && !patient.Email && <span className="text-[10px] text-slate-400">No contact details</span>}</div></td>
@@ -191,7 +217,47 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-3 sm:px-6"><span className="text-[10px] text-slate-400" data-testid="text-patient-results-count">Showing {visiblePatients.length} of {patients.length} sample patients</span><span className="flex items-center gap-1.5 text-[9px] font-medium text-slate-400"><CalendarDays size={12} /> Local data · resets on reload</span></div>
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span className="text-[10px] text-slate-400" data-testid="text-patient-results-count">
+            Showing {firstPatientNumber}–{lastPatientNumber} of {visiblePatients.length} matching patients
+          </span>
+          <nav className="flex items-center justify-center gap-1" aria-label="Patient pages" data-testid="pagination-patients">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(displayedPage - 1)}
+              disabled={displayedPage === 1}
+              aria-label="Previous patient page"
+              data-testid="button-patients-previous"
+              className="flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={14} /><span className="hidden sm:inline">Previous</span>
+            </button>
+            {pageNumbers.map((pageNumber) => (
+              <button
+                key={pageNumber}
+                type="button"
+                onClick={() => setCurrentPage(pageNumber)}
+                aria-label={`Go to patient page ${pageNumber}`}
+                aria-current={displayedPage === pageNumber ? 'page' : undefined}
+                data-testid={`button-patients-page-${pageNumber}`}
+                className={`h-8 min-w-8 rounded-lg px-2 text-[10px] font-semibold transition ${displayedPage === pageNumber ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setCurrentPage(displayedPage + 1)}
+              disabled={displayedPage === pageCount}
+              aria-label="Next patient page"
+              data-testid="button-patients-next"
+              className="flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="hidden sm:inline">Next</span><ChevronRight size={14} />
+            </button>
+          </nav>
+          <span className="flex items-center justify-center gap-1.5 text-[9px] font-medium text-slate-400 sm:justify-end"><CalendarDays size={12} /> Local data · resets on reload</span>
+        </div>
       </section>
 
       {formOpen && <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }} data-testid="dialog-patient-form-overlay">
