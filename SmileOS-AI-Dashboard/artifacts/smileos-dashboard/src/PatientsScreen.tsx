@@ -6,15 +6,16 @@ import {
 } from 'lucide-react';
 import { BACKEND_URL, backendAvailable } from './lib/backend';
 import { request } from './lib/backend';
-import { createBackendPatient, listBackendPatients, mapBackendPatient, type BackendPatient } from './lib/backendPatients';
+import { createBackendPatient, listSupabasePatients, mapBackendPatient, type BackendPatient } from './lib/backendPatients';
 
 function toRecord(p: BackendPatient): PatientRecord {
   return {
     id: `P-${p.patNum}`,
+    recordKey: p.recordKey,
     FName: p.firstName, LName: p.lastName, MiddleI: p.middleInitial, Preferred: p.preferred,
     PatStatus: p.status || 'Patient', Gender: p.gender, Position: '',
     Birthdate: (p.birthdate || '').slice(0, 10),
-    Address: p.address, Address2: p.address2, City: p.city, State: p.state, Zip: p.zip,
+    Address: p.address, Address2: p.address2, City: p.city, State: p.state, Zip: p.zip, ClinicAbbr: p.clinicAbbr,
     HmPhone: p.homePhone, WkPhone: '', WirelessPhone: p.phone,
     Email: p.email, PreferContactMethod: p.preferContactMethod, TxtMsgOk: 'Unknown',
   };
@@ -22,6 +23,8 @@ function toRecord(p: BackendPatient): PatientRecord {
 
 export type PatientRecord = {
   id: string;
+  recordKey?: string;
+  ClinicAbbr?: string;
   FName: string;
   LName: string;
   MiddleI: string;
@@ -108,7 +111,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     if (!backendAvailable()) { setBackendError('Backend is offline in this build. No patient records can be loaded or saved.'); return; }
     let live = true;
     setSyncing(true);
-    listBackendPatients('')
+    listSupabasePatients('')
       .then((rows) => {
         if (!live) return;
         setPatients(rows.map(toRecord));
@@ -128,12 +131,12 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     const term = search.trim();
     if (!term) return;
     const t = window.setTimeout(() => {
-      listBackendPatients(term)
+      listSupabasePatients(term)
         .then((rows) => {
           if (rows.length === 0) return;
           setPatients((current) => {
-            const ids = new Set(current.map((p) => p.id));
-            const fresh = rows.map(toRecord).filter((p) => !ids.has(p.id));
+            const ids = new Set(current.map((p) => p.recordKey || p.id));
+            const fresh = rows.map(toRecord).filter((p) => !ids.has(p.recordKey || p.id));
             return [...fresh, ...current];
           });
           setBackendError('');
@@ -143,7 +146,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     return () => window.clearTimeout(t);
   }, [search, backendOn]);
   const visiblePatients = useMemo(() => patients.filter((patient) =>
-    `${patient.FName} ${patient.MiddleI} ${patient.LName} ${patient.Preferred} ${patient.id} ${patient.Email} ${patient.WirelessPhone}`
+    `${patient.FName} ${patient.MiddleI} ${patient.LName} ${patient.Preferred} ${patient.id} ${patient.Email} ${patient.WirelessPhone} ${patient.HmPhone}`
       .toLowerCase().includes(search.trim().toLowerCase())), [patients, search]);
   const pageCount = Math.max(1, Math.ceil(visiblePatients.length / PATIENTS_PER_PAGE));
   const displayedPage = Math.min(currentPage, pageCount);
@@ -178,7 +181,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   };
 
   const openEdit = (patient: PatientRecord) => {
-    const { id: _id, ...values } = patient;
+    const { id: _id, recordKey: _recordKey, ClinicAbbr: _clinicAbbr, ...values } = patient;
     setEditing(patient);
     setDraft(values);
     setErrors({});
@@ -220,11 +223,12 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
       if (editing) {
         const body: Record<string, string> = {};
         (Object.keys(normalized) as (keyof typeof normalized)[]).forEach((k) => {
-          if (normalized[k] !== editing[k]) body[k] = normalized[k];
+          if (typeof normalized[k] === 'string' && normalized[k] !== editing[k]) body[k] = normalized[k];
         });
         if (Object.keys(body).length === 0) { setFormError('No changes to save.'); return; }
         await request(`/api/patients/${editing.id.replace(/^P-/, '')}`, { method: 'PUT', body: JSON.stringify(body) });
-        setPatients((current) => current.map((patient) => patient.id === editing.id ? { ...patient, ...normalized } : patient));
+        setPatients((current) => current.map((patient) =>
+          (patient.recordKey || patient.id) === (editing.recordKey || editing.id) ? { ...patient, ...normalized } : patient));
         setSavedId(editing.id);
         announce(`${normalized.FName} ${normalized.LName} updated in Open Dental (${Object.keys(body).join(', ')}).`);
       } else {
