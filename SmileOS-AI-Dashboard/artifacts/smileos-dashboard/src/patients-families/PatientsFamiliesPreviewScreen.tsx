@@ -9,7 +9,7 @@ import DeletePreviewDialog from './DeletePreviewDialog';
 
 const PAGE_SIZE = 10;
 
-export default function PatientsFamiliesPreviewScreen({ definition, rows, onCreate, onUpdate, onDelete }: PatientsFamiliesPreviewProps) {
+export default function PatientsFamiliesPreviewScreen({ definition, rows, createRequest = 0, onCreate, onUpdate, onDelete }: PatientsFamiliesPreviewProps) {
   const [search, setSearch] = useState('');
   const [patient, setPatient] = useState('');
   const [page, setPage] = useState(0);
@@ -18,6 +18,9 @@ export default function PatientsFamiliesPreviewScreen({ definition, rows, onCrea
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState('');
   const accent = accentFor(definition.resource);
+  useEffect(() => {
+    if (createRequest > 0) setForm('create');
+  }, [createRequest]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -82,7 +85,7 @@ export default function PatientsFamiliesPreviewScreen({ definition, rows, onCrea
             <div className="px-6 py-14 text-center" data-testid="preview-empty">
               <span className={`mx-auto flex h-11 w-11 items-center justify-center rounded-xl ${accent.soft} ${accent.text}`}><FilePlus2 size={19} /></span>
               <p className="mt-3 text-[12px] font-semibold text-slate-700">No preview records yet</p>
-              <p className="mt-1 text-[10px] text-slate-400">This list starts empty. Add a fictional record to try the layout.</p>
+              <p className="mt-1 text-[10px] text-slate-400">Add a fictional record to try the layout. No API is needed.</p>
               <button type="button" onClick={() => setForm('create')} className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-[#315fe7] px-3 text-[10px] font-bold text-white hover:bg-[#244fcf]"><Plus size={13} /> Add preview record</button>
             </div>
           ) : filtered.length === 0 ? (

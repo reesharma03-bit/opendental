@@ -30,6 +30,7 @@ export interface PreviewResourceDefinition {
 export interface PatientsFamiliesPreviewProps {
   definition: PreviewResourceDefinition;
   rows: readonly PreviewRecord[];
+  createRequest?: number;
   onCreate: (values: PreviewValues) => void;
   onUpdate: (id: string, values: PreviewValues) => void;
   onDelete: (id: string) => void;

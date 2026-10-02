@@ -14,12 +14,9 @@ import ApiCatalogScreen from './ApiCatalogScreen';
 import AllergiesScreen from './AllergiesScreen';
 import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
 import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
-import PatientsScreen from './PatientsScreen';
 import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
 import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
 import { usePatientsFamilyPreviews } from './patients-families/usePatientsFamilyPreviews';
-import ResourceScreen from './ResourceScreen';
-import { resourceMap } from './lib/resourceMeta';
 
 const initialResource = (() => {
   const name = new URLSearchParams(window.location.search).get('resource');
@@ -238,6 +235,23 @@ function App() {
     setActiveNav('API Catalog');
     window.history.pushState(null, '', `/?resource=${encodeURIComponent(name)}`);
   };
+  const renderPatientFamilyPreview = (definition: NonNullable<typeof previewDefinition>, createRequest = 0) => (
+    <PatientsFamiliesPreviewScreen
+      key={definition.resource}
+      definition={definition}
+      rows={previewRecords[definition.resource] ?? []}
+      createRequest={createRequest}
+      onCreate={(values) => dispatchPreview({
+        type: 'create', resource: definition.resource, id: crypto.randomUUID(), values,
+      })}
+      onUpdate={(id, values) => dispatchPreview({
+        type: 'update', resource: definition.resource, id, values,
+      })}
+      onDelete={(id) => dispatchPreview({
+        type: 'delete', resource: definition.resource, id,
+      })}
+    />
+  );
 
   return (
     <div className="min-h-[100dvh] bg-[#f5f7fb] text-slate-800">
@@ -359,7 +373,7 @@ function App() {
           <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-400 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS keeps your practice in sync.</span><span>Sample dashboard data · For display purposes only</span></footer>
         </div>
         <div hidden={activeNav !== 'Patients'}>
-          <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} />
+          {renderPatientFamilyPreview(patientFamilyPreviewDefinitions.Patients, createPatientRequest)}
         </div>
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
@@ -372,23 +386,7 @@ function App() {
             : selectedApiResource === 'DiseaseDefs'
               ? <DiseaseDefinitionsScreen />
             : previewDefinition
-              ? <PatientsFamiliesPreviewScreen
-                  key={previewDefinition.resource}
-                  definition={previewDefinition}
-                  rows={previewRecords[previewDefinition.resource] ?? []}
-                  onCreate={(values) => dispatchPreview({
-                    type: 'create', resource: previewDefinition.resource,
-                    id: crypto.randomUUID(), values,
-                  })}
-                  onUpdate={(id, values) => dispatchPreview({
-                    type: 'update', resource: previewDefinition.resource, id, values,
-                  })}
-                  onDelete={(id) => dispatchPreview({
-                    type: 'delete', resource: previewDefinition.resource, id,
-                  })}
-                />
-            : selectedApiResource && resourceMap[selectedApiResource]
-              ? <ResourceScreen key={selectedApiResource} resource={resourceMap[selectedApiResource]} />
+              ? renderPatientFamilyPreview(previewDefinition)
               : <ApiCatalogScreen selectedResource={selectedApiResource} />
         )}
       </main>
