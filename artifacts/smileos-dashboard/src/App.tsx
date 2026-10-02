@@ -9,6 +9,7 @@ import {
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import AppointmentsScreen from './AppointmentsScreen';
 import PatientsScreen from './PatientsScreen';
 
 type Patient = { name: string; initials: string; detail: string; color: string; id: string };
@@ -134,6 +135,7 @@ function App() {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [createPatientRequest, setCreatePatientRequest] = useState(0);
+  const [createAppointmentRequest, setCreateAppointmentRequest] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const [period, setPeriod] = useState('This week');
   const [checkedIn, setCheckedIn] = useState<string[]>(['Aarav Mehta']);
@@ -150,7 +152,7 @@ function App() {
     window.setTimeout(() => setToast(''), 3200);
   };
   const runQuickAction = (name: string) => {
-    if (name === 'Dashboard' || name === 'Patients') {
+    if (name === 'Dashboard' || name === 'Patients' || name === 'Appointments') {
       setActiveNav(name);
       return;
     }
@@ -185,7 +187,7 @@ function App() {
             <div><p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {weekdayLabel}, YOUR PRACTICE IS LOOKING GOOD</p><h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">Good morning, Dr. Sharma<span className="text-blue-600">.</span></h1><p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p></div>
             <div className="flex items-center gap-2">
               <button onClick={() => announce('Calendar view is part of the display-only dashboard.')} data-testid="button-calendar-date" className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 shadow-sm hover:border-slate-300"><CalendarDays size={14} className="text-slate-400" /> Today <ChevronDown size={13} className="text-slate-400" /></button>
-              <button onClick={() => announce('New appointment form is not connected in this display-only sample.')} data-testid="button-new-appointment" className="flex h-9 items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><span className="text-[16px] font-normal leading-none">+</span> New appointment</button>
+               <button onClick={() => { setActiveNav('Appointments'); setCreateAppointmentRequest((request) => request + 1); }} data-testid="button-new-appointment" className="flex h-9 items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><span className="text-[16px] font-normal leading-none">+</span> New appointment</button>
             </div>
           </section>
 
@@ -200,7 +202,7 @@ function App() {
             <div className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-todays-appointments">
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5 sm:px-6">
                 <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Today's appointments</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">18</span></div><p className="mt-1 text-[10px] text-slate-400">Your schedule for today</p></div>
-                <button onClick={() => announce('Showing all appointments in this dashboard sample.')} data-testid="button-view-all-appointments" className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800">View schedule <ArrowRight size={13} /></button>
+                 <button onClick={() => setActiveNav('Appointments')} data-testid="button-view-all-appointments" className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800">View schedule <ArrowRight size={13} /></button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-left">
@@ -278,6 +280,9 @@ function App() {
         </div>
         <div hidden={activeNav !== 'Patients'}>
           <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} />
+        </div>
+        <div hidden={activeNav !== 'Appointments'}>
+          <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
         </div>
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
