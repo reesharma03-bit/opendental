@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3,
-  Bell, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, CreditCard, LayoutDashboard,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
   Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap,
@@ -10,6 +10,7 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import AppointmentsScreen from './AppointmentsScreen';
+import ApiCatalogScreen from './ApiCatalogScreen';
 import PatientsScreen from './PatientsScreen';
 
 type Patient = { name: string; initials: string; detail: string; color: string; id: string };
@@ -18,6 +19,7 @@ const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Patients', icon: Users, badge: '2.4k' },
   { label: 'Appointments', icon: CalendarDays },
+  { label: 'API Catalog', icon: BookOpen },
   { label: 'Procedures', icon: Stethoscope },
   { label: 'Billing', icon: CreditCard },
   { label: 'Inbox', icon: MessageSquareText, badge: '4' },
@@ -152,7 +154,7 @@ function App() {
     window.setTimeout(() => setToast(''), 3200);
   };
   const runQuickAction = (name: string) => {
-    if (name === 'Dashboard' || name === 'Patients' || name === 'Appointments') {
+    if (name === 'Dashboard' || name === 'Patients' || name === 'Appointments' || name === 'API Catalog') {
       setActiveNav(name);
       return;
     }
@@ -182,7 +184,7 @@ function App() {
           </div>
         </header>
 
-        <div hidden={activeNav === 'Patients'} className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9">
+        <div hidden={activeNav !== 'Dashboard'} className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9">
           <section className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div><p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {weekdayLabel}, YOUR PRACTICE IS LOOKING GOOD</p><h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">Good morning, Dr. Sharma<span className="text-blue-600">.</span></h1><p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p></div>
             <div className="flex items-center gap-2">
@@ -283,6 +285,9 @@ function App() {
         </div>
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
+        </div>
+        <div hidden={activeNav !== 'API Catalog'}>
+          <ApiCatalogScreen />
         </div>
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
