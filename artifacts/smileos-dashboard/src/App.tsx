@@ -9,6 +9,7 @@ import {
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import PatientsScreen from './PatientsScreen';
 
 type Patient = { name: string; initials: string; detail: string; color: string; id: string };
 
@@ -132,6 +133,7 @@ function App() {
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [createPatientRequest, setCreatePatientRequest] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const [period, setPeriod] = useState('This week');
   const [checkedIn, setCheckedIn] = useState<string[]>(['Aarav Mehta']);
@@ -148,9 +150,11 @@ function App() {
     window.setTimeout(() => setToast(''), 3200);
   };
   const runQuickAction = (name: string) => {
-    setActiveNav(name);
-    if (name === 'AI Assistant') setAiOpen((current) => !current);
-    else announce(`${name} selected — dashboard sample view remains open.`);
+    if (name === 'Dashboard' || name === 'Patients') {
+      setActiveNav(name);
+      return;
+    }
+    announce(`${name} is a navigation placeholder in this sample.`);
   };
 
   return (
@@ -169,14 +173,14 @@ function App() {
               <button onClick={() => setNoticeOpen((value) => !value)} data-testid="button-notifications" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-800"><Bell size={18} strokeWidth={1.8} /><span className="absolute right-[8px] top-[7px] h-2 w-2 rounded-full border-2 border-[#f8f9fc] bg-rose-500" /></button>
               {noticeOpen && <div className="absolute right-0 top-12 z-50 w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl" data-testid="panel-notifications"><div className="flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Notifications</p><button onClick={() => { setNoticeOpen(false); announce('All caught up.'); }} className="text-[10px] font-semibold text-blue-600" data-testid="button-mark-read">Mark all read</button></div><div className="mt-4 space-y-3"><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Nisha Patel confirmed her 9:45 appointment.</p><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />3 invoices are due for follow-up today.</p></div></div>}
             </div>
-            <button onClick={() => { setAiOpen((value) => !value); setActiveNav('AI Assistant'); }} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>
+            <button onClick={() => { setAiOpen((value) => !value); announce('AI Assistant is a display-only sample feature.'); }} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>
             <button onClick={() => announce('Profile menu opened.')} data-testid="button-user-profile" aria-label="Open profile" className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-1.5 transition hover:bg-white">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e4edf9] text-[10px] font-bold text-[#395781]">DS</span><span className="hidden text-left sm:block"><span className="block text-[11px] font-bold leading-4 text-slate-700">Dr. Sharma</span><span className="block text-[9px] text-slate-400">Owner</span></span><ChevronDown size={13} className="hidden text-slate-400 sm:block" />
             </button>
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9">
+        <div hidden={activeNav === 'Patients'} className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9">
           <section className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div><p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {weekdayLabel}, YOUR PRACTICE IS LOOKING GOOD</p><h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">Good morning, Dr. Sharma<span className="text-blue-600">.</span></h1><p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p></div>
             <div className="flex items-center gap-2">
@@ -261,16 +265,19 @@ function App() {
               </div>
             </section>
             <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)] sm:p-6" data-testid="section-recent-patients">
-              <div className="flex items-start justify-between"><div><h2 className="font-[Manrope] text-[14px] font-extrabold text-slate-800">Recent patients</h2><p className="mt-1 text-[10px] text-slate-400">Latest arrivals at your practice</p></div><button onClick={() => announce('Patient directory is represented by this sample list.')} data-testid="button-view-patients" className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800">View all <ArrowRight size={12} /></button></div>
+              <div className="flex items-start justify-between"><div><h2 className="font-[Manrope] text-[14px] font-extrabold text-slate-800">Recent patients</h2><p className="mt-1 text-[10px] text-slate-400">Latest arrivals at your practice</p></div><button onClick={() => setActiveNav('Patients')} data-testid="button-view-patients" className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800">View all <ArrowRight size={12} /></button></div>
               <div className="mt-4 divide-y divide-slate-100">
                 {visiblePatients.map((patient) => <div key={patient.id} className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0" data-testid={`row-patient-${patient.id}`}><Avatar initials={patient.initials} tone={patient.color} /><div className="min-w-0 flex-1"><p className="truncate text-[11px] font-bold text-slate-700">{patient.name}</p><p className="mt-0.5 truncate text-[9px] text-slate-400">{patient.detail}</p></div><span className="rounded-md bg-slate-50 px-1.5 py-1 text-[8px] font-semibold text-slate-400">{patient.id}</span><button onClick={() => announce(`Patient details for ${patient.name} are display-only.`)} aria-label={`Open ${patient.name} profile`} data-testid={`button-patient-${patient.id}`} className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600"><ArrowRight size={13} /></button></div>)}
                 {visiblePatients.length === 0 && <p className="py-9 text-center text-xs text-slate-400" data-testid="empty-patients">No patients match “{search}”.</p>}
               </div>
-              <button onClick={() => announce('New patient registration is not connected in this display-only sample.')} data-testid="button-add-patient" className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 text-[10px] font-semibold text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700"><UserRoundPlus size={14} /> Add a patient</button>
+              <button onClick={() => { setActiveNav('Patients'); setCreatePatientRequest((request) => request + 1); }} data-testid="button-add-patient" className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 text-[10px] font-semibold text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700"><UserRoundPlus size={14} /> Add a patient</button>
             </section>
           </section>
 
           <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-400 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS keeps your practice in sync.</span><span>Sample dashboard data · For display purposes only</span></footer>
+        </div>
+        <div hidden={activeNav !== 'Patients'}>
+          <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} />
         </div>
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
