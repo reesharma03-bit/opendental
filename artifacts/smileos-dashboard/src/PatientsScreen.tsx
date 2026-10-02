@@ -4,6 +4,20 @@ import {
   MapPin, Pencil, Plus, Search, ShieldAlert, Smartphone,
   Users, X,
 } from 'lucide-react';
+import { BACKEND_URL, backendAvailable } from './lib/backend';
+import { createBackendPatient, listBackendPatients, mapBackendPatient, type BackendPatient } from './lib/backendPatients';
+
+function toRecord(p: BackendPatient): PatientRecord {
+  return {
+    id: `P-${p.patNum}`,
+    FName: p.firstName, LName: p.lastName, MiddleI: '', Preferred: '',
+    PatStatus: p.status || 'Patient', Gender: p.gender, Position: '',
+    Birthdate: (p.birthdate || '').slice(0, 10),
+    Address: p.address, Address2: p.address2, City: p.city, State: p.state, Zip: p.zip,
+    HmPhone: p.homePhone, WkPhone: '', WirelessPhone: p.phone,
+    Email: p.email, PreferContactMethod: p.preferContactMethod, TxtMsgOk: 'Unknown',
+  };
+}
 
 export type PatientRecord = {
   id: string;
@@ -86,6 +100,10 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   createRequest: number;
 }) {
   const [patients, setPatients] = useState<PatientRecord[]>(initialPatients);
+  const [backendOn, setBackendOn] = useState(false);
+  const [backendError, setBackendError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<PatientRecord | null>(null);
   const [draft, setDraft] = useState<Omit<PatientRecord, 'id'>>(emptyPatient());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -93,6 +111,44 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   const [savedId, setSavedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
+  useEffect(() => {
+    if (!backendAvailable()) return;
+    let live = true;
+    setSyncing(true);
+    listBackendPatients('')
+      .then((rows) => {
+        if (!live || rows.length === 0) return;
+        setPatients(rows.map(toRecord));
+        setBackendOn(true);
+        setBackendError('');
+      })
+      .catch((e: Error) => { if (live) setBackendError(e.message); })
+      .finally(() => { if (live) setSyncing(false); });
+    return () => { live = false; };
+  }, []);
+
+  // Debounced server search: after 400ms of idle typing, ask the backend so
+  // results beyond the loaded page are found. Falls back silently to local
+  // filtering when the backend is unreachable.
+  useEffect(() => {
+    if (!backendOn || !backendAvailable()) return;
+    const term = search.trim();
+    if (!term) return;
+    const t = window.setTimeout(() => {
+      listBackendPatients(term)
+        .then((rows) => {
+          if (rows.length === 0) return;
+          setPatients((current) => {
+            const ids = new Set(current.map((p) => p.id));
+            const fresh = rows.map(toRecord).filter((p) => !ids.has(p.id));
+            return [...fresh, ...current];
+          });
+          setBackendError('');
+        })
+        .catch((e: Error) => setBackendError(e.message));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [search, backendOn]);
   const visiblePatients = useMemo(() => patients.filter((patient) =>
     `${patient.FName} ${patient.MiddleI} ${patient.LName} ${patient.Preferred} ${patient.id} ${patient.Email} ${patient.WirelessPhone}`
       .toLowerCase().includes(search.trim().toLowerCase())), [patients, search]);
@@ -166,6 +222,35 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
       setPatients((current) => current.map((patient) => patient.id === editing.id ? { ...normalized, id: editing.id } : patient));
       setSavedId(editing.id);
       announce(`${normalized.FName} ${normalized.LName} updated in this sample only.`);
+    } else if (backendOn) {
+      setSaving(true);
+      try {
+        const saved = await createBackendPatient({
+          firstName: normalized.FName, lastName: normalized.LName,
+          birthdate: normalized.Birthdate, phone: normalized.WirelessPhone,
+          middleName: normalized.MiddleI, preferredName: normalized.Preferred,
+          gender: normalized.Gender, status: normalized.PatStatus,
+          homePhone: normalized.HmPhone, email: normalized.Email,
+          address: normalized.Address, address2: normalized.Address2,
+          city: normalized.City, state: normalized.State, zip: normalized.Zip,
+          preferContactMethod: normalized.PreferContactMethod,
+        });
+        const record = toRecord(saved);
+        setPatients((current) => [record, ...current]);
+        setCurrentPage(1);
+        setSavedId(record.id);
+        setBackendError('');
+        announce(`Patient ${record.FName} ${record.LName} created on the server as ${record.id}.`);
+      } catch (e) {
+        setBackendError((e as Error).message);
+        const newId = `P-${String(Math.floor(10000 + Math.random() * 89999))}`;
+        setPatients((current) => [{ ...normalized, id: newId }, ...current]);
+        setCurrentPage(1);
+        setSavedId(newId);
+        announce(`Server create failed — ${(e as Error).message}. Saved locally instead.`);
+      } finally {
+        setSaving(false);
+      }
     } else {
       const newId = `P-${String(Math.floor(10000 + Math.random() * 89999))}`;
       setPatients((current) => [{ ...normalized, id: newId }, ...current]);
