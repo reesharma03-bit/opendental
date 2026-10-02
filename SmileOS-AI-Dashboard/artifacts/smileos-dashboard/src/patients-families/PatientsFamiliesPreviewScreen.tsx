@@ -46,7 +46,7 @@ export default function PatientsFamiliesPreviewScreen({ definition, rows, create
       <header className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className={`mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[1.3px] ${accent.text}`}>
-            <UsersRound size={13} /> Patients &amp; Families <span className="text-slate-300">/</span> {definition.resource}
+            <UsersRound size={13} /> {definition.section ?? 'Patients & Families'} <span className="text-slate-300">/</span> {definition.resource}
           </p>
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]">{definition.title}<span className="text-blue-600">.</span></h1>
           <p className="mt-1.5 max-w-2xl text-[12px] leading-5 text-slate-500">{definition.description}</p>

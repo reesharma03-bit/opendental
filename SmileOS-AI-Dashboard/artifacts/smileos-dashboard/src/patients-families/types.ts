@@ -18,6 +18,7 @@ export interface PreviewField {
 }
 
 export interface PreviewResourceDefinition {
+  section?: string;
   resource: string;
   title: string;
   singular: string;

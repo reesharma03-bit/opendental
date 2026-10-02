@@ -1,4 +1,5 @@
 import { patientFamilyPreviewDefinitions } from './definitions';
+import { schedulingPreviewDefinitions } from '../schedulingDefinitions';
 import type { PreviewStore } from './store';
 import type { PreviewField, PreviewValues } from './types';
 
@@ -34,7 +35,8 @@ function exampleValue(field: PreviewField, singular: string, index: number): str
 }
 
 export function createDemoPreviewStore(): PreviewStore {
-  return Object.fromEntries(Object.values(patientFamilyPreviewDefinitions).map((definition) => [
+  const definitions = { ...patientFamilyPreviewDefinitions, ...schedulingPreviewDefinitions };
+  return Object.fromEntries(Object.values(definitions).map((definition) => [
     definition.resource,
     [0, 1].map((index) => {
       const values: PreviewValues = Object.fromEntries(definition.fields.map((field) => [

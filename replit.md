@@ -25,7 +25,7 @@ Set `OPENDENTAL_BASE_URL` to the existing Open Dental service when live synchron
 
 ## Clinical resource behavior
 
-- Patients & Families additions are UI-only; the user will create APIs later. Preserve the existing Allergies, Allergy Defs, and Disease Defs screens. Keep the other screens available without backend dependencies. In the API sidebar, retain groups through Insurance & Billing and remove every group after it.
+- Patients & Families and Scheduling additions are UI-only; the user will create APIs later. Preserve the existing Allergies, Allergy Defs, and Disease Defs screens. Keep the other screens available without backend dependencies. In the API sidebar, retain groups through Insurance & Billing and remove every group after it.
 - Clearly labeled UI-only previews may use fictional in-memory demo records. They are not clinical data and must not be sent to Open Dental.
 - Supported actions follow each resource's official Open Dental documentation, not universal CRUD. Read-only resources must not offer write actions.
 - Never synthesize clinical records or report a local save as success after an API write fails. Keep failed forms open with an explicit error; only a successful backend response permits a success message.
