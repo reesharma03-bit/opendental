@@ -49,3 +49,8 @@ waitForPort = 8099
 [postMerge]
 path = "SmileOS-AI-Dashboard/scripts/post-merge.sh"
 timeoutMs = 180000
+
+[userenv]
+
+[userenv.shared]
+OPENDENTAL_BASE_URL = "localhost 8080"
