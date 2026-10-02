@@ -17,6 +17,7 @@ import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
 import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
 import { schedulingPreviewDefinitions } from './schedulingDefinitions';
+import { clinicalCarePreviewDefinitions } from './clinicalCareDefinitions';
 import { usePatientsFamilyPreviews } from './patients-families/usePatientsFamilyPreviews';
 
 const initialResource = (() => {
@@ -195,7 +196,9 @@ function App() {
   const [selectedApiResource, setSelectedApiResource] = useState<string | null>(initialResource);
   const { records: previewRecords, dispatch: dispatchPreview } = usePatientsFamilyPreviews();
   const previewDefinition = selectedApiResource
-    ? patientFamilyPreviewDefinitions[selectedApiResource] ?? schedulingPreviewDefinitions[selectedApiResource] : undefined;
+    ? patientFamilyPreviewDefinitions[selectedApiResource]
+      ?? schedulingPreviewDefinitions[selectedApiResource]
+      ?? clinicalCarePreviewDefinitions[selectedApiResource] : undefined;
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
