@@ -15,6 +15,7 @@ import AllergiesScreen from './AllergiesScreen';
 import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
 import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
+import SupabasePatientsScreen from './SupabasePatientsScreen';
 import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
 import { schedulingPreviewDefinitions } from './schedulingDefinitions';
 import { clinicalCarePreviewDefinitions } from './clinicalCareDefinitions';
@@ -204,7 +205,6 @@ function App() {
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
-  const [createPatientRequest, setCreatePatientRequest] = useState(0);
   const [createAppointmentRequest, setCreateAppointmentRequest] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const [period, setPeriod] = useState('This week');
@@ -372,15 +372,13 @@ function App() {
                 {visiblePatients.map((patient) => <div key={patient.id} className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0" data-testid={`row-patient-${patient.id}`}><Avatar initials={patient.initials} tone={patient.color} /><div className="min-w-0 flex-1"><p className="truncate text-[11px] font-bold text-slate-700">{patient.name}</p><p className="mt-0.5 truncate text-[9px] text-slate-400">{patient.detail}</p></div><span className="rounded-md bg-slate-50 px-1.5 py-1 text-[8px] font-semibold text-slate-400">{patient.id}</span><button onClick={() => announce(`Patient details for ${patient.name} are display-only.`)} aria-label={`Open ${patient.name} profile`} data-testid={`button-patient-${patient.id}`} className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600"><ArrowRight size={13} /></button></div>)}
                 {visiblePatients.length === 0 && <p className="py-9 text-center text-xs text-slate-400" data-testid="empty-patients">No patients match “{search}”.</p>}
               </div>
-              <button onClick={() => { setActiveNav('Patients'); setCreatePatientRequest((request) => request + 1); }} data-testid="button-add-patient" className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 text-[10px] font-semibold text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700"><UserRoundPlus size={14} /> Add a patient</button>
+              <button onClick={() => setActiveNav('Patients')} data-testid="button-add-patient" className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 text-[10px] font-semibold text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700"><UserRoundPlus size={14} /> Open live directory</button>
             </section>
           </section>
 
           <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-400 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS keeps your practice in sync.</span><span>Sample dashboard data · For display purposes only</span></footer>
         </div>
-        <div hidden={activeNav !== 'Patients'}>
-          {renderPatientFamilyPreview(patientFamilyPreviewDefinitions.Patients, createPatientRequest)}
-        </div>
+        {activeNav === 'Patients' && <SupabasePatientsScreen search={search} onSearchChange={setSearch} />}
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
         </div>

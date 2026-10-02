@@ -2,6 +2,7 @@
 import { pick, pickNum, request, type Raw } from './backend';
 
 export interface BackendPatient {
+  recordKey: string;
   patNum: number;
   firstName: string;
   lastName: string;
@@ -16,6 +17,7 @@ export interface BackendPatient {
   address2: string;
   city: string;
   state: string;
+  clinicAbbr: string;
   zip: string;
   status: string;
   chartNumber: string;
@@ -28,8 +30,10 @@ export interface BackendPatient {
 }
 
 export function mapBackendPatient(raw: Raw): BackendPatient {
+  const patNum = pickNum(raw, 'pat_num', 'patNum', 'PatNum') ?? 0;
   return {
-    patNum: pickNum(raw, 'pat_num', 'patNum', 'PatNum') ?? 0,
+    recordKey: pick(raw, 'record_key', 'recordKey') || `P-${patNum}`,
+    patNum,
     firstName: pick(raw, 'f_name', 'fname', 'fName', 'FName'),
     lastName: pick(raw, 'l_name', 'lname', 'lName', 'LName'),
     middleInitial: pick(raw, 'middle_i', 'middleI', 'middlei', 'MiddleI'),
@@ -43,6 +47,7 @@ export function mapBackendPatient(raw: Raw): BackendPatient {
     address2: pick(raw, 'address2', 'Address2'),
     city: pick(raw, 'city', 'City'),
     state: pick(raw, 'state', 'State'),
+    clinicAbbr: pick(raw, 'clinic_abbr', 'clinicAbbr'),
     zip: pick(raw, 'zip', 'Zip'),
     status: pick(raw, 'pat_status', 'patstatus', 'PatStatus'),
     chartNumber: pick(raw, 'chart_number', 'chartNumber', 'ChartNumber'),
@@ -53,6 +58,13 @@ export function mapBackendPatient(raw: Raw): BackendPatient {
     language: pick(raw, 'language', 'Language'),
     medicaidId: pick(raw, 'medicaid_id', 'medicaidId', 'MedicaidID', 'MedicaidId'),
   };
+}
+
+export async function listSupabasePatients(search: string): Promise<BackendPatient[]> {
+  const term = search.trim();
+  const path = '/api/patients/database';
+  const query = term ? `?${new URLSearchParams({ Search: term })}` : '';
+  return (await request<Raw[]>(`${path}${query}`)).map(mapBackendPatient);
 }
 
 export async function listBackendPatients(search: string): Promise<BackendPatient[]> {

@@ -1,5 +1,6 @@
 com/clinic/opendental/controller/AllergiesController.class
 com/clinic/opendental/service/AllergyService.class
+com/clinic/opendental/dto/patient/PatientDirectoryResponse.class
 com/clinic/opendental/service/Impl/AllergyServiceImpl$OpenDentalCall.class
 com/clinic/opendental/controller/PatientFamilyResourcesController.class
 com/clinic/opendental/service/Impl/AllergyServiceImpl.class

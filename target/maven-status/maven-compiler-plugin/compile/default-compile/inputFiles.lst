@@ -41,6 +41,7 @@
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patfield/PatFieldResponse.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patfielddeleted/PatFieldDeletedResponse.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patient/CreatePatientRequest.java
+/home/runner/workspace/src/main/java/com/clinic/opendental/dto/patient/PatientDirectoryResponse.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patient/PatientResponse.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patient/PatientSearchRequest.java
 /home/runner/workspace/src/main/java/com/clinic/opendental/dto/patient/PatientSimpleResponse.java

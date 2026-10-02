@@ -2,6 +2,7 @@ package com.clinic.opendental.controller;
 
 import com.clinic.opendental.dto.patient.CreatePatientRequest;
 import com.clinic.opendental.dto.patient.PatientResponse;
+import com.clinic.opendental.dto.patient.PatientDirectoryResponse;
 import com.clinic.opendental.dto.patient.PatientSimpleResponse;
 import com.clinic.opendental.dto.patient.UpdatePatientRequest;
 import com.clinic.opendental.service.PatientService;
@@ -33,6 +34,16 @@ public class ApiPatientsController {
             @RequestParam Map<String, String> params) {
 
         return ResponseEntity.ok(patientService.getPatients(params));
+    }
+
+    /**
+     * Read-only, minimal patient directory projection directly from the configured database.
+     */
+    @GetMapping("/database")
+    public ResponseEntity<List<PatientDirectoryResponse>> getPatientDirectoryFromDatabase(
+            @RequestParam Map<String, String> params) {
+
+        return ResponseEntity.ok(patientService.getPatientDirectoryFromDatabase(params));
     }
 
     /**

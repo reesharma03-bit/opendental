@@ -3,6 +3,7 @@ package com.clinic.opendental.service.Impl;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.patient.CreatePatientRequest;
 import com.clinic.opendental.dto.patient.PatientResponse;
+import com.clinic.opendental.dto.patient.PatientDirectoryResponse;
 import com.clinic.opendental.dto.patient.PatientSimpleResponse;
 import com.clinic.opendental.dto.patient.UpdatePatientRequest;
 import com.clinic.opendental.exception.ApiException;
@@ -23,10 +24,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -57,6 +60,43 @@ public class PatientServiceImpl implements PatientService {
                     .filter(p -> matchesSearchParams(p, params))
                     .collect(Collectors.toList());
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PatientDirectoryResponse> getPatientDirectoryFromDatabase(Map<String, String> params) {
+        String search = param(params, "Search");
+        String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        return patientRepository.findAll().stream()
+                .filter(patient -> matchesSearchParams(toPatientResponse(patient), params))
+                .filter(patient -> needle.isEmpty()
+                        || Stream.of(
+                                patient.getFName(),
+                                patient.getLName(),
+                                patient.getPreferred(),
+                                patient.getEmail(),
+                                patient.getWirelessPhone(),
+                                patient.getHmPhone(),
+                                String.valueOf(patient.getId().getPatNum()))
+                        .filter(value -> value != null && !value.isBlank())
+                        .anyMatch(value -> value.toLowerCase(Locale.ROOT).contains(needle)))
+                .map(patient -> new PatientDirectoryResponse(
+                        patient.getId().getClinicId() + ":" + patient.getId().getPatNum(),
+                        patient.getId().getPatNum(),
+                        patient.getClinicAbbr(),
+                        patient.getFName(),
+                        patient.getLName(),
+                        patient.getMiddleI(),
+                        patient.getPreferred(),
+                        patient.getPatStatus(),
+                        patient.getGender(),
+                        patient.getBirthdate() == null ? null : patient.getBirthdate().format(DATE_FORMAT),
+                        patient.getEmail(),
+                        patient.getWirelessPhone(),
+                        patient.getHmPhone(),
+                        patient.getCity(),
+                        patient.getState()))
+                .collect(Collectors.toList());
     }
 
     @Override

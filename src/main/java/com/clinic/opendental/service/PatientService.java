@@ -2,6 +2,7 @@ package com.clinic.opendental.service;
 
 import com.clinic.opendental.dto.patient.CreatePatientRequest;
 import com.clinic.opendental.dto.patient.PatientResponse;
+import com.clinic.opendental.dto.patient.PatientDirectoryResponse;
 import com.clinic.opendental.dto.patient.PatientSimpleResponse;
 import com.clinic.opendental.dto.patient.UpdatePatientRequest;
 
@@ -11,6 +12,8 @@ import java.util.Map;
 public interface PatientService {
 
     List<PatientResponse> getPatients(Map<String, String> params);
+
+    List<PatientDirectoryResponse> getPatientDirectoryFromDatabase(Map<String, String> params);
 
     List<PatientSimpleResponse> getSimplePatients(Map<String, String> params);
 
