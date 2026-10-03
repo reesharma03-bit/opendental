@@ -109,7 +109,12 @@ function SubscriptionDialog({
               <label className="block text-[11px] font-semibold text-slate-700">
                 Watch table
                 <select className={inputClass} value={values.watchTable} onChange={(event) => set('watchTable', event.target.value)}>
-                  {['Appointment', 'Patient', 'ProcedureLog', 'InsSub'].map((table) => <option key={table}>{table}</option>)}
+                  {[
+                    'Appointment', 'AppointmentDeleted', 'LabCase', 'LabCaseDeleted',
+                    'MedicationPat', 'MedicationPatDeleted', 'Operatory', 'PatField',
+                    'PatFieldDeleted', 'Patient', 'Provider', 'Schedule',
+                    'ScheduleDeleted', 'ToothInitial', 'ToothInitialDeleted',
+                  ].map((table) => <option key={table}>{table}</option>)}
                 </select>
               </label>
               <label className="block text-[11px] font-semibold text-slate-700">
@@ -170,7 +175,7 @@ export default function SubscriptionScreen() {
     const term = query.trim().toLowerCase();
     return matchesType && (!term || `${item.endpoint} ${item.workstation} ${item.watchTable} ${item.uiEventType} ${item.note}`.toLowerCase().includes(term));
   }), [filter, query, subscriptions]);
-  const selected = subscriptions.find((item) => item.id === selectedId) ?? visible[0] ?? null;
+  const selected = visible.find((item) => item.id === selectedId) ?? visible[0] ?? null;
   const failures = subscriptions.filter((item) => item.failureReason).length;
   const active = subscriptions.length - failures;
 
@@ -209,7 +214,7 @@ export default function SubscriptionScreen() {
 
       <section className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Subscription preview summary">
         <Metric label="Sample subscriptions" value={String(subscriptions.length).padStart(2, '0')} detail="Local preview records" icon={BellRing} tone="bg-blue-50 text-blue-600" />
-        <Metric label="No sample failures" value={String(active).padStart(2, '0')} detail="Illustrative delivery status only" icon={CheckCircle2} tone="bg-emerald-50 text-emerald-600" />
+        <Metric label="Without sample warnings" value={String(active).padStart(2, '0')} detail="Illustrative delivery status only" icon={CheckCircle2} tone="bg-emerald-50 text-emerald-600" />
         <Metric label="Needs review" value={String(failures).padStart(2, '0')} detail="Fictional endpoint failure examples" icon={AlertTriangle} tone="bg-amber-50 text-amber-600" />
       </section>
 
