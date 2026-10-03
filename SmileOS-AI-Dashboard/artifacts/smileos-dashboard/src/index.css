@@ -79,40 +79,40 @@
   --elevate-1: rgba(0, 0, 0, 0.03);
   --elevate-2: rgba(0, 0, 0, 0.08);
 
-  --background: 216 40% 97%;
-  --foreground: 222 37% 19%;
-  --border: 217 29% 91%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 37% 19%;
-  --card-border: 217 29% 92%;
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 221 28% 28%;
-  --sidebar-border: 217 29% 92%;
-  --sidebar-primary: 222 73% 52%;
+  --background: 210 35% 96%;
+  --foreground: 216 34% 19%;
+  --border: 213 25% 87%;
+  --card: 200 35% 99%;
+  --card-foreground: 216 34% 19%;
+  --card-border: 213 25% 88%;
+  --sidebar: 198 36% 98%;
+  --sidebar-foreground: 216 30% 26%;
+  --sidebar-border: 213 25% 88%;
+  --sidebar-primary: 195 62% 34%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 65% 96%;
-  --sidebar-accent-foreground: 222 73% 44%;
-  --sidebar-ring: 222 73% 52%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 37% 19%;
-  --popover-border: 217 29% 91%;
-  --primary: 222 73% 52%;
+  --sidebar-accent: 190 40% 92%;
+  --sidebar-accent-foreground: 195 62% 29%;
+  --sidebar-ring: 195 62% 34%;
+  --popover: 200 35% 99%;
+  --popover-foreground: 216 34% 19%;
+  --popover-border: 213 25% 87%;
+  --primary: 195 62% 34%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 38% 95%;
-  --secondary-foreground: 222 37% 24%;
-  --muted: 216 30% 95%;
-  --muted-foreground: 217 13% 52%;
-  --accent: 192 72% 94%;
-  --accent-foreground: 194 75% 32%;
+  --secondary: 196 28% 92%;
+  --secondary-foreground: 216 30% 24%;
+  --muted: 205 28% 93%;
+  --muted-foreground: 213 17% 42%;
+  --accent: 185 38% 91%;
+  --accent-foreground: 190 58% 27%;
   --destructive: 0 68% 54%;
   --destructive-foreground: 0 0% 100%;
-  --input: 217 25% 88%;
-  --ring: 222 73% 52%;
-  --chart-1: 222 73% 52%;
-  --chart-2: 185 51% 55%;
-  --chart-3: 258 57% 72%;
-  --chart-4: 34 80% 67%;
-  --chart-5: 148 43% 58%;
+  --input: 213 23% 82%;
+  --ring: 195 62% 34%;
+  --chart-1: 195 62% 34%;
+  --chart-2: 177 38% 48%;
+  --chart-3: 212 39% 63%;
+  --chart-4: 36 62% 62%;
+  --chart-5: 150 34% 48%;
 
   --app-font-sans: 'DM Sans', sans-serif;
   --app-font-serif: 'Manrope', sans-serif;
@@ -201,40 +201,40 @@
   --elevate-1: rgba(255, 255, 255, 0.04);
   --elevate-2: rgba(255, 255, 255, 0.09);
 
-  --background: 222 29% 12%;
-  --foreground: 215 28% 92%;
-  --border: 220 19% 25%;
-  --card: 222 26% 16%;
-  --card-foreground: 215 28% 92%;
-  --card-border: 220 19% 25%;
-  --sidebar: 222 27% 15%;
-  --sidebar-foreground: 215 25% 84%;
-  --sidebar-border: 220 19% 25%;
-  --sidebar-primary: 222 73% 60%;
+  --background: 206 29% 12%;
+  --foreground: 198 22% 92%;
+  --border: 204 19% 25%;
+  --card: 205 25% 16%;
+  --card-foreground: 198 22% 92%;
+  --card-border: 204 19% 25%;
+  --sidebar: 205 26% 15%;
+  --sidebar-foreground: 198 20% 84%;
+  --sidebar-border: 204 19% 25%;
+  --sidebar-primary: 187 54% 57%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 222 22% 22%;
-  --sidebar-accent-foreground: 215 28% 92%;
-  --sidebar-ring: 222 73% 60%;
-  --popover: 222 26% 16%;
-  --popover-foreground: 215 28% 92%;
-  --popover-border: 220 19% 25%;
-  --primary: 222 73% 60%;
+  --sidebar-accent: 201 22% 22%;
+  --sidebar-accent-foreground: 198 22% 92%;
+  --sidebar-ring: 187 54% 57%;
+  --popover: 205 25% 16%;
+  --popover-foreground: 198 22% 92%;
+  --popover-border: 204 19% 25%;
+  --primary: 187 54% 57%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 19% 23%;
-  --secondary-foreground: 215 28% 92%;
-  --muted: 220 19% 23%;
-  --muted-foreground: 217 14% 66%;
-  --accent: 192 42% 24%;
-  --accent-foreground: 192 62% 80%;
+  --secondary: 201 19% 23%;
+  --secondary-foreground: 198 22% 92%;
+  --muted: 201 19% 23%;
+  --muted-foreground: 202 15% 68%;
+  --accent: 187 32% 23%;
+  --accent-foreground: 184 44% 81%;
   --destructive: 0 62% 55%;
   --destructive-foreground: 0 0% 100%;
-  --input: 220 19% 28%;
-  --ring: 222 73% 60%;
-  --chart-1: 222 73% 60%;
-  --chart-2: 185 51% 60%;
-  --chart-3: 258 57% 72%;
-  --chart-4: 34 80% 67%;
-  --chart-5: 148 43% 58%;
+  --input: 202 19% 29%;
+  --ring: 187 54% 57%;
+  --chart-1: 187 54% 57%;
+  --chart-2: 177 38% 58%;
+  --chart-3: 212 39% 70%;
+  --chart-4: 36 62% 67%;
+  --chart-5: 150 34% 60%;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
@@ -274,6 +274,70 @@
 .dashboard-scroll::-webkit-scrollbar { width: 6px; }
 .dashboard-scroll::-webkit-scrollbar-thumb { background: #d7dfec; border-radius: 99px; }
 .soft-grid { background-image: radial-gradient(#dce5f2 0.7px, transparent 0.7px); background-size: 16px 16px; }
+
+/* SmileOS clinical workspace — clearer type, mineral-tinted surfaces, quiet focus. */
+:root {
+  --app-font-sans: 'DM Sans', sans-serif;
+  --app-font-serif: 'Manrope', sans-serif;
+  --app-font-mono: 'DM Sans', monospace;
+}
+
+body {
+  color: #25364a;
+  background-color: #f1f5f6;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Raise the original microcopy scale without changing the intentionally dense layouts. */
+[class~="text-[8px]"] { font-size: 10px !important; line-height: 1.4 !important; }
+[class~="text-[9px]"] { font-size: 11px !important; line-height: 1.45 !important; }
+[class~="text-[10px]"] { font-size: 12px !important; line-height: 1.5 !important; }
+[class~="text-[11px]"] { font-size: 13px !important; line-height: 1.5 !important; }
+[class~="text-[12px]"] { font-size: 14px !important; line-height: 1.5 !important; }
+
+/* Bring low-priority metadata and placeholder labels up to comfortable contrast. */
+[class~="text-slate-400"] { color: #62758a !important; }
+[class~="text-slate-300"] { color: #7e8fa1 !important; }
+[class~="placeholder:text-slate-400"]::placeholder { color: #718397 !important; opacity: 1; }
+[class~="bg-white"] { background-color: #fcfefe !important; }
+[class~="bg-[#f5f7fb]"] { background-color: #f1f5f6 !important; }
+[class~="bg-[#f8f9fc]/95"] { background-color: rgb(246 249 249 / 96%) !important; }
+[class~="bg-[#315fe7]"] { background-color: #236a78 !important; }
+[class~="hover:bg-[#244fcf]"]:hover { background-color: #185965 !important; }
+[class~="text-blue-600"] { color: #236a78 !important; }
+[class~="text-blue-700"] { color: #205f6c !important; }
+[class~="border-blue-100"] { border-color: #c8e0e2 !important; }
+[class~="bg-blue-50"] { background-color: #edf6f6 !important; }
+
+/* More decisive keyboard focus and predictable clinical table scanning. */
+button, a, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid #6baeb4;
+  outline-offset: 2px;
+}
+table thead th {
+  color: #53677c;
+  font-size: 11px;
+  letter-spacing: .075em;
+}
+table tbody tr {
+  transition: background-color 140ms ease;
+}
+.recharts-cartesian-axis-tick-value {
+  fill: #5d7185;
+  font-size: 11px;
+}
+::selection {
+  color: #173f48;
+  background: #d4ebeb;
+}
+
+@media (max-width: 640px) {
+  body { font-size: 14px; }
+}
 
 /**
  * Using the elevate system.
