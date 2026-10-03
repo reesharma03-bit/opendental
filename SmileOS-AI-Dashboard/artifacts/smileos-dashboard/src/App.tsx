@@ -4,7 +4,7 @@ import {
   Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, CreditCard, LayoutDashboard, BellRing,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
-  Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap,
+  RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap,
 } from 'lucide-react';
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -118,6 +118,17 @@ function Sidebar({
           </nav>
           <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed ? 'md:hidden' : ''}`}>
             <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Open Dental API</p>
+            <button
+              type="button"
+              disabled
+              title="UI only"
+              data-testid="button-force-refresh"
+              className="mb-2 flex min-h-9 w-full cursor-not-allowed items-center gap-2 rounded-lg px-3 text-left text-[11px] font-semibold text-slate-500"
+            >
+              <RefreshCw size={14} className="shrink-0" />
+              <span>Force refresh</span>
+              <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-400">UI only</span>
+            </button>
             <nav aria-label="Open Dental API resources" className="space-y-1">
               {apiNavigationGroups.map(({ label, resources }) => {
                 const expanded = expandedGroups.includes(label);
