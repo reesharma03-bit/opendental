@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -275,69 +275,113 @@
 .dashboard-scroll::-webkit-scrollbar-thumb { background: #d7dfec; border-radius: 99px; }
 .soft-grid { background-image: radial-gradient(#dce5f2 0.7px, transparent 0.7px); background-size: 16px 16px; }
 
-/* SmileOS clinical workspace — clearer type, mineral-tinted surfaces, quiet focus. */
+/* SmileOS enterprise workspace: 8px rhythm, clear data hierarchy, restrained motion. */
 :root {
-  --app-font-sans: 'DM Sans', sans-serif;
-  --app-font-serif: 'Manrope', sans-serif;
-  --app-font-mono: 'DM Sans', monospace;
+  --background: 0 0% 98%;
+  --foreground: 220 26% 14%;
+  --border: 220 14% 91%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 26% 14%;
+  --card-border: 220 14% 91%;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 220 18% 24%;
+  --sidebar-border: 220 14% 91%;
+  --sidebar-primary: 221 83% 53%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 221 100% 97%;
+  --sidebar-accent-foreground: 221 83% 42%;
+  --sidebar-ring: 221 83% 53%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 26% 14%;
+  --popover-border: 220 14% 91%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 95%;
+  --secondary-foreground: 220 20% 22%;
+  --muted: 220 14% 95%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 221 100% 97%;
+  --accent-foreground: 221 83% 42%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 14% 88%;
+  --ring: 221 83% 53%;
+  --chart-1: 221 83% 53%;
+  --chart-2: 160 84% 39%;
+  --chart-3: 199 89% 48%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 262 52% 58%;
+  --success: #10b981;
+  --danger: #ef4444;
+  --surface: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --primary-border: hsl(var(--primary));
+  --app-font-sans: 'Inter', sans-serif;
+  --app-font-serif: 'Inter', sans-serif;
+  --app-font-mono: 'Inter', monospace;
 }
 
 body {
-  color: #25364a;
-  background-color: #f1f5f6;
+  color: #111827;
+  background-color: #fafafa;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
 
-/* Raise the original microcopy scale without changing the intentionally dense layouts. */
-[class~="text-[8px]"] { font-size: 10px !important; line-height: 1.4 !important; }
-[class~="text-[9px]"] { font-size: 11px !important; line-height: 1.45 !important; }
+/* Preserve dense tables while bringing every original micro-label to readable size. */
+[class~="text-[8px]"] { font-size: 12px !important; line-height: 1.4 !important; }
+[class~="text-[9px]"] { font-size: 12px !important; line-height: 1.45 !important; }
 [class~="text-[10px]"] { font-size: 12px !important; line-height: 1.5 !important; }
 [class~="text-[11px]"] { font-size: 13px !important; line-height: 1.5 !important; }
 [class~="text-[12px]"] { font-size: 14px !important; line-height: 1.5 !important; }
+[class~="text-slate-400"] { color: #6b7280 !important; }
+[class~="text-slate-300"] { color: #9ca3af !important; }
+[class~="font-[Manrope]"] { font-family: 'Inter', sans-serif !important; }
+[class~="placeholder:text-slate-400"]::placeholder { color: #6b7280 !important; opacity: 1; }
+[class~="bg-[#f5f7fb]"] { background-color: #fafafa !important; }
+[class~="bg-[#f8f9fc]/95"] { background-color: rgb(250 250 250 / 96%) !important; }
+[class~="bg-[#315fe7]"] { background-color: #2563eb !important; }
+[class~="hover:bg-[#244fcf]"]:hover { background-color: #1d4ed8 !important; }
+[class~="text-emerald-600"] { color: #10b981 !important; }
+[class~="bg-emerald-500"] { background-color: #10b981 !important; }
+[class~="text-rose-600"] { color: #ef4444 !important; }
 
-/* Bring low-priority metadata and placeholder labels up to comfortable contrast. */
-[class~="text-slate-400"] { color: #62758a !important; }
-[class~="text-slate-300"] { color: #7e8fa1 !important; }
-[class~="placeholder:text-slate-400"]::placeholder { color: #718397 !important; opacity: 1; }
-[class~="bg-white"] { background-color: #fcfefe !important; }
-[class~="bg-[#f5f7fb]"] { background-color: #f1f5f6 !important; }
-[class~="bg-[#f8f9fc]/95"] { background-color: rgb(246 249 249 / 96%) !important; }
-[class~="bg-[#315fe7]"] { background-color: #236a78 !important; }
-[class~="hover:bg-[#244fcf]"]:hover { background-color: #185965 !important; }
-[class~="text-blue-600"] { color: #236a78 !important; }
-[class~="text-blue-700"] { color: #205f6c !important; }
-[class~="border-blue-100"] { border-color: #c8e0e2 !important; }
-[class~="bg-blue-50"] { background-color: #edf6f6 !important; }
-
-/* More decisive keyboard focus and predictable clinical table scanning. */
 button, a, input, select, textarea {
   -webkit-tap-highlight-color: transparent;
 }
+button, a { transition: transform 160ms ease, opacity 160ms ease; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 3px solid #6baeb4;
+  outline: 3px solid #93c5fd;
   outline-offset: 2px;
 }
-table thead th {
-  color: #53677c;
-  font-size: 11px;
-  letter-spacing: .075em;
+table thead th { color: #4b5563; font-size: 12px; letter-spacing: .065em; }
+table tbody tr { transition: transform 140ms ease, opacity 140ms ease; }
+.recharts-cartesian-axis-tick-value { fill: #6b7280; font-size: 12px; }
+[data-testid^="section-"], [data-testid^="card-kpi"] {
+  border-color: #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgb(17 24 39 / 4%);
+  transition: transform 180ms ease, opacity 180ms ease;
 }
-table tbody tr {
-  transition: background-color 140ms ease;
+[data-testid^="section-"]:hover, [data-testid^="card-kpi"]:hover {
+  box-shadow: 0 8px 20px rgb(17 24 39 / 7%);
+  transform: translateY(-1px);
 }
-.recharts-cartesian-axis-tick-value {
-  fill: #5d7185;
-  font-size: 11px;
+[data-testid^="section-"]:focus-within, [data-testid^="card-kpi"]:focus-within {
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%), 0 8px 20px rgb(17 24 39 / 7%);
 }
-::selection {
-  color: #173f48;
-  background: #d4ebeb;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
-
-@media (max-width: 640px) {
-  body { font-size: 14px; }
-}
+::selection { color: #1e3a8a; background: #dbeafe; }
 
 /**
  * Using the elevate system.

@@ -104,6 +104,22 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(date);
 }
 
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function dateFromInput(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function beginningOfWeek(date: Date) {
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return monday;
+}
+
 export default function AppointmentsScreen({ search, onSearchChange, announce, createRequest }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -134,6 +150,16 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [calendarView, setCalendarView] = useState<'week' | 'day'>('week');
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const calendarDays = useMemo(() => {
+    const start = calendarView === 'week' ? beginningOfWeek(calendarDate) : new Date(calendarDate);
+    return Array.from({ length: calendarView === 'week' ? 7 : 1 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return date;
+    });
+  }, [calendarDate, calendarView]);
 
   const visible = useMemo(() => records.filter((item) => {
     const patient = patients.find((person) => person.PatNum === item.PatNum)?.name || '';
@@ -144,6 +170,11 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const page = Math.min(currentPage, pageCount);
   const pageRecords = visible.slice((page - 1) * pageSize, page * pageSize);
+  const shiftCalendar = (direction: number) => setCalendarDate((current) => {
+    const next = new Date(current);
+    next.setDate(next.getDate() + direction * (calendarView === 'week' ? 7 : 1));
+    return next;
+  });
 
   useEffect(() => setCurrentPage(1), [search]);
   useEffect(() => {
@@ -251,6 +282,87 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
         <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Sample-only · Not connected to OpenDental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Search, create, and edit update browser state only. Nothing is sent to OpenDental or saved; all changes reset when you reload.</p></div>
         <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Local demo</span>
       </div>
+
+      <section className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" data-testid="section-appointment-calendar" aria-label="Appointment calendar preview">
+        <header className="flex flex-col gap-4 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[.1em] text-blue-700">Local schedule view</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">Calendar</h2>
+            <p className="mt-0.5 text-xs text-slate-600">View existing schedule records by day or week. Select an entry to edit.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1" aria-label="Calendar view">
+              <button type="button" onClick={() => setCalendarView('day')} aria-pressed={calendarView === 'day'} data-testid="button-calendar-view-day" className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${calendarView === 'day' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Day</button>
+              <button type="button" onClick={() => setCalendarView('week')} aria-pressed={calendarView === 'week'} data-testid="button-calendar-view-week" className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${calendarView === 'week' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Week</button>
+            </div>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => shiftCalendar(-1)} aria-label={`Previous ${calendarView}`} data-testid="button-calendar-previous" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={16} /></button>
+              <button type="button" onClick={() => setCalendarDate(new Date())} data-testid="button-calendar-today" className="h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">Today</button>
+              <button type="button" onClick={() => shiftCalendar(1)} aria-label={`Next ${calendarView}`} data-testid="button-calendar-next" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50"><ChevronRight size={16} /></button>
+            </div>
+            <label className="sr-only" htmlFor="appointment-calendar-date">Choose calendar date</label>
+            <input id="appointment-calendar-date" type="date" value={localDateKey(calendarDate)} onChange={(event) => { if (event.target.value) setCalendarDate(dateFromInput(event.target.value)); }} data-testid="input-calendar-date" className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700" />
+          </div>
+        </header>
+
+        {calendarView === 'week' ? (
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[930px] grid-cols-7 divide-x divide-slate-200">
+              {calendarDays.map((date) => {
+                const dateKey = localDateKey(date);
+                const dateRecords = records
+                  .filter((record) => localDateKey(new Date(record.AptDateTime.replace(' ', 'T'))) === dateKey)
+                  .sort((a, b) => a.AptDateTime.localeCompare(b.AptDateTime));
+                const isToday = dateKey === localDateKey(new Date());
+                return (
+                  <div key={dateKey} className={`min-h-[260px] ${isToday ? 'bg-blue-50/35' : 'bg-white'}`} data-testid={`calendar-day-${dateKey}`}>
+                    <button type="button" onClick={() => { setCalendarDate(date); setCalendarView('day'); }} aria-label={`Show ${date.toLocaleDateString()} in day view`} className="w-full border-b border-slate-200 px-2 py-3 text-center transition hover:bg-blue-50/70">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date)}</span>
+                      <span className={`mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${isToday ? 'bg-blue-600 text-white' : 'text-slate-800'}`}>{date.getDate()}</span>
+                    </button>
+                    <div className="space-y-2 p-2">
+                      {dateRecords.map((record) => {
+                        const person = patients.find((item) => item.PatNum === record.PatNum);
+                        return (
+                          <button key={record.AptNum} type="button" onClick={() => openEdit(record)} data-testid={`calendar-event-${record.AptNum}`} className="w-full rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-left transition hover:border-blue-300 hover:bg-blue-100/80">
+                            <span className="block text-[11px] font-bold text-blue-900">{new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(record.AptDateTime.replace(' ', 'T')))}</span>
+                            <span className="mt-0.5 block truncate text-xs font-semibold text-slate-800">{person?.name || `Patient ${record.PatNum}`}</span>
+                            <span className="mt-0.5 block truncate text-[11px] text-slate-600">{record.Note || 'Appointment'} · {record.AptStatus}</span>
+                          </button>
+                        );
+                      })}
+                      {dateRecords.length === 0 && <p className="px-1 py-2 text-center text-[11px] text-slate-400">No appointments</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            <div className="flex items-center gap-3 bg-slate-50/75 px-4 py-3 sm:px-5">
+              <span className="flex h-10 w-10 flex-col items-center justify-center rounded-lg bg-blue-600 text-white"><span className="text-[9px] font-semibold uppercase">{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(calendarDate)}</span><span className="text-sm font-bold leading-4">{calendarDate.getDate()}</span></span>
+              <div><p className="text-sm font-bold text-slate-900">{new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(calendarDate)}</p><p className="text-xs text-slate-600">{records.filter((record) => localDateKey(new Date(record.AptDateTime.replace(' ', 'T'))) === localDateKey(calendarDate)).length} scheduled records</p></div>
+            </div>
+            {records
+              .filter((record) => localDateKey(new Date(record.AptDateTime.replace(' ', 'T'))) === localDateKey(calendarDate))
+              .sort((a, b) => a.AptDateTime.localeCompare(b.AptDateTime))
+              .map((record) => {
+                const person = patients.find((item) => item.PatNum === record.PatNum);
+                return (
+                  <button key={record.AptNum} type="button" onClick={() => openEdit(record)} data-testid={`calendar-event-${record.AptNum}`} className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-blue-50/50 sm:px-5">
+                    <span className="w-20 shrink-0 text-xs font-semibold text-slate-600">{new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(record.AptDateTime.replace(' ', 'T')))}</span>
+                    <span className="h-9 w-1 shrink-0 rounded-full bg-blue-500" />
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-900">{person?.name || `Patient ${record.PatNum}`}</span><span className="mt-0.5 block truncate text-xs text-slate-600">{record.Note || 'Appointment'} · {record.AptStatus}</span></span>
+                    <span className="hidden text-xs text-slate-500 sm:block">{operatories.find((operatory) => operatory.Op === record.Op)?.name || `Operatory ${record.Op}`}</span>
+                    <Pencil size={14} className="shrink-0 text-slate-400" />
+                  </button>
+                );
+              })}
+            {records.filter((record) => localDateKey(new Date(record.AptDateTime.replace(' ', 'T'))) === localDateKey(calendarDate)).length === 0 && <p className="px-5 py-9 text-center text-sm text-slate-600" data-testid="empty-calendar-day">No scheduled appointments on this day.</p>}
+          </div>
+        )}
+      </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-appointment-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">

@@ -7,6 +7,7 @@ import {
 import { backendAvailable } from './lib/backend';
 import { request } from './lib/backend';
 import { createBackendPatient, listSupabasePatients, type BackendPatient } from './lib/backendPatients';
+import PatientExperiencePreview from './PatientExperiencePreview';
 
 function toRecord(p: BackendPatient): PatientRecord {
   return {
@@ -107,6 +108,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   const [formOpen, setFormOpen] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (!backendAvailable()) { setBackendError('Backend is offline in this build. No patient records can be loaded or saved.'); return; }
@@ -286,7 +288,12 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-patients-title">Patients<span className="text-blue-600">.</span></h1>
           <p className="mt-1.5 text-[12px] text-slate-500">Live patient records from Supabase.</p>
         </div>
-        <button onClick={openCreate} data-testid="button-create-patient" className="flex h-10 items-center justify-center gap-2 self-start rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf] sm:self-auto"><Plus size={16} /> Add patient</button>
+        <div className="flex flex-col gap-2 self-start sm:flex-row sm:self-auto">
+          <button type="button" onClick={() => setPreviewOpen((open) => !open)} aria-expanded={previewOpen} aria-controls="patient-experience-demo" data-testid="button-open-patient-experience-preview" className="flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-3.5 text-[12px] font-semibold text-blue-800 transition hover:bg-blue-50">
+            <Users size={15} /> {previewOpen ? 'Hide fictional preview' : 'Fictional experience preview'}
+          </button>
+          <button onClick={openCreate} data-testid="button-create-patient" className="flex h-10 items-center justify-center gap-2 rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><Plus size={16} /> Add patient</button>
+        </div>
       </div>
 
       <div role="note" data-testid="notice-sample-only" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-[#fff8e9] px-4 py-3.5 text-amber-950 sm:items-center">
@@ -294,6 +301,8 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
         <div className="min-w-0 flex-1"><p className="text-[12px] font-bold">Supabase patient data · Add/Edit writes to Open Dental</p><p className="mt-0.5 text-[11px] leading-5 text-amber-900/75">Add and Edit change live patient records through the Open Dental API. Failures are shown here and nothing is saved locally.</p></div>
         <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Open Dental</span>
       </div>
+
+      {previewOpen && <PatientExperiencePreview />}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-patient-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">

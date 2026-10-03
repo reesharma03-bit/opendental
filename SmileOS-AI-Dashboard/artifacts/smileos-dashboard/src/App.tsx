@@ -179,7 +179,7 @@ function MetricCard({ label, value, change, icon: Icon, iconTone, trend, note, t
   label: string; value: string; change: string; icon: typeof Users; iconTone: string; trend: 'up' | 'down'; note: string; testId: string;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)] transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(26,49,91,0.07)]" data-testid={testId}>
+    <section className="rounded-xl border border-slate-200/75 bg-white p-6 shadow-[0_2px_10px_rgba(26,49,91,0.025)] transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(26,49,91,0.07)]" data-testid={testId}>
       <div className="flex items-start justify-between"><p className="text-[12px] font-semibold text-slate-500">{label}</p><span className={`flex h-9 w-9 items-center justify-center rounded-xl ${iconTone}`}><Icon size={18} strokeWidth={1.9} /></span></div>
       <div className="mt-3 flex items-end justify-between gap-2"><p className="font-[Manrope] text-[27px] font-extrabold leading-none tracking-[-1.2px] text-slate-900">{value}</p><span className={`mb-0.5 inline-flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[10px] font-bold ${trend === 'up' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'}`}>{trend === 'up' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{change}</span></div>
       <p className="mt-2.5 text-[10px] text-slate-400">{note}</p>
@@ -286,21 +286,26 @@ function App() {
 
         <div hidden={activeNav !== 'Dashboard'} className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9">
           <section className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div><p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {weekdayLabel}, YOUR PRACTICE IS LOOKING GOOD</p><h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">Good morning, Dr. Sharma<span className="text-blue-600">.</span></h1><p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p></div>
+            <div><p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> DEMO PREVIEW <span className="text-slate-300">·</span> {weekdayLabel}</p><h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">Good morning, Dr. Sharma<span className="text-blue-600">.</span></h1><p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p></div>
             <div className="flex items-center gap-2">
               <button onClick={() => announce('Calendar view is part of the display-only dashboard.')} data-testid="button-calendar-date" className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 shadow-sm hover:border-slate-300"><CalendarDays size={14} className="text-slate-400" /> Today <ChevronDown size={13} className="text-slate-400" /></button>
                <button onClick={() => { setActiveNav('Appointments'); setCreateAppointmentRequest((request) => request + 1); }} data-testid="button-new-appointment" className="flex h-9 items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><span className="text-[16px] font-normal leading-none">+</span> New appointment</button>
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Practice key metrics">
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Practice key metrics">
             <MetricCard label="Today's Appointments" value="18" change="+12.5%" icon={CalendarDays} iconTone="bg-blue-50 text-blue-600" trend="up" note="Compared to last week" testId="card-kpi-appointments" />
-            <MetricCard label="Active Patients" value="2,486" change="+4.8%" icon={Users} iconTone="bg-cyan-50 text-cyan-700" trend="up" note="Across your practice" testId="card-kpi-patients" />
+            <MetricCard label="Doctors on duty" value="4" change="All available" icon={Stethoscope} iconTone="bg-blue-50 text-blue-600" trend="up" note="Local dashboard preview" testId="card-kpi-doctors" />
+            <MetricCard label="Patient growth" value="2,486" change="+4.8%" icon={Users} iconTone="bg-cyan-50 text-cyan-700" trend="up" note="Active patient count · preview data" testId="card-kpi-patients" />
             <MetricCard label="Revenue this month" value="₹4,82,650" change="+8.2%" icon={CircleDollarSign} iconTone="bg-emerald-50 text-emerald-700" trend="up" note="₹42,300 above last month" testId="card-kpi-revenue" />
-            <MetricCard label="Outstanding payments" value="₹68,420" change="6.3%" icon={Wallet} iconTone="bg-amber-50 text-amber-700" trend="down" note="Across 14 pending invoices" testId="card-kpi-outstanding" />
+            <MetricCard label="Treatment success" value="94.6%" change="+2.1%" icon={CheckCircle2} iconTone="bg-emerald-50 text-emerald-700" trend="up" note="Illustrative dashboard metric" testId="card-kpi-treatment-success" />
+            <MetricCard label="Chair utilization" value="76%" change="+5.4%" icon={Activity} iconTone="bg-cyan-50 text-cyan-700" trend="up" note="Across practice schedule · preview" testId="card-kpi-chair-utilization" />
+            <MetricCard label="Collections this week" value="₹35,090" change="+8.2%" icon={Wallet} iconTone="bg-emerald-50 text-emerald-700" trend="up" note="Local dashboard preview" testId="card-kpi-collections" />
+            <MetricCard label="Pending lab cases" value="7" change="2 due soon" icon={Clock3} iconTone="bg-amber-50 text-amber-700" trend="down" note="Sample status only" testId="card-kpi-lab-cases" />
+            <MetricCard label="Inventory alerts" value="3" change="Review" icon={Bell} iconTone="bg-rose-50 text-rose-700" trend="down" note="Sample status only" testId="card-kpi-inventory-alerts" />
           </section>
 
-          <section className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.72fr)_minmax(320px,.88fr)]">
+          <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.72fr)_minmax(320px,.88fr)]">
             <div className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-todays-appointments">
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5 sm:px-6">
                 <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Today's appointments</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">18</span></div><p className="mt-1 text-[10px] text-slate-400">Your schedule for today</p></div>
@@ -326,7 +331,7 @@ function App() {
               <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-appointment-status">
                 <div className="flex items-start justify-between"><div><h2 className="font-[Manrope] text-[14px] font-extrabold text-slate-800">Appointment status</h2><p className="mt-1 text-[10px] text-slate-400">Today's schedule at a glance</p></div><button onClick={() => announce('Status breakdown for today.')} aria-label="Appointment status options" data-testid="button-status-options" className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><MoreHorizontal size={17} /></button></div>
                 <div className="mt-5 flex items-center gap-5">
-                  <div className="relative flex h-[112px] w-[112px] shrink-0 items-center justify-center rounded-full" style={{ background: 'conic-gradient(#315fe7 0deg 178deg, #56b6c1 178deg 258deg, #a99bec 258deg 318deg, #f3c36c 318deg 360deg)' }}>
+                  <div className="relative flex h-[112px] w-[112px] shrink-0 items-center justify-center rounded-full" style={{ background: 'conic-gradient(#2563eb 0deg 178deg, #10b981 178deg 258deg, #93c5fd 258deg 318deg, #f3c36c 318deg 360deg)' }}>
                     <div className="flex h-[82px] w-[82px] flex-col items-center justify-center rounded-full bg-white"><span className="font-[Manrope] text-[22px] font-extrabold text-slate-800">18</span><span className="text-[9px] text-slate-400">total today</span></div>
                   </div>
                   <div className="min-w-0 flex-1 space-y-2.5">
@@ -358,12 +363,12 @@ function App() {
               <div className="mt-3 h-[186px] w-full" data-testid="chart-weekly-revenue">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={revenueData} margin={{ top: 12, right: 4, left: -20, bottom: 0 }}>
-                    <defs><linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4d78ed" stopOpacity={0.19} /><stop offset="95%" stopColor="#4d78ed" stopOpacity={0.005} /></linearGradient></defs>
+                    <defs><linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563eb" stopOpacity={0.19} /><stop offset="95%" stopColor="#2563eb" stopOpacity={0.005} /></linearGradient></defs>
                     <CartesianGrid vertical={false} stroke="#eef1f6" strokeDasharray="3 4" />
                     <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#9aa6b7', fontSize: 10 }} dy={8} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9aa6b7', fontSize: 9 }} tickFormatter={(value: number) => `₹${value / 1000}k`} />
-                    <Tooltip cursor={{ stroke: '#bac9f7', strokeDasharray: '4 4' }} contentStyle={{ border: '1px solid #e7edf6', borderRadius: 10, fontSize: 11, boxShadow: '0 5px 16px rgba(31,53,88,.08)' }} formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Revenue']} />
-                    <Area type="monotone" dataKey="value" stroke="#426be4" strokeWidth={2.5} fill="url(#revenueFill)" activeDot={{ r: 4, strokeWidth: 3, stroke: '#fff', fill: '#426be4' }} dot={{ r: 3, fill: '#fff', stroke: '#426be4', strokeWidth: 2 }} />
+                    <Tooltip cursor={{ stroke: '#bfdbfe', strokeDasharray: '4 4' }} contentStyle={{ border: '1px solid #e5e7eb', borderRadius: 10, fontSize: 12, boxShadow: '0 5px 16px rgba(31,53,88,.08)' }} formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Revenue']} />
+                    <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2.5} fill="url(#revenueFill)" activeDot={{ r: 4, strokeWidth: 3, stroke: '#fff', fill: '#2563eb' }} dot={{ r: 3, fill: '#fff', stroke: '#2563eb', strokeWidth: 2 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -378,7 +383,7 @@ function App() {
             </section>
           </section>
 
-          <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-400 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS keeps your practice in sync.</span><span>Sample dashboard data · For display purposes only</span></footer>
+          <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-500 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS practice workspace</span><span>Demo preview · Local sample metrics only · For display purposes only</span></footer>
         </div>
         {activeNav === 'Patients' && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
         <div hidden={activeNav !== 'Appointments'}>
