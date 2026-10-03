@@ -1,1 +1,8 @@
 node_modules/
+
+# Maven build output
+target/
+
+# Runtime / build logs
+*.log
+*.err
