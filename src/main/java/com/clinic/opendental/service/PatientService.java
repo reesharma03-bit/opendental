@@ -15,6 +15,9 @@ public interface PatientService {
 
     List<PatientDirectoryResponse> getPatientDirectoryFromDatabase(Map<String, String> params);
 
+    /** Full patient records from our database only; patNum narrows to one patient. */
+    List<PatientResponse> getPatientsFromDatabase(Long patNum);
+
     List<PatientSimpleResponse> getSimplePatients(Map<String, String> params);
 
     PatientResponse getPatient(Long patNum);

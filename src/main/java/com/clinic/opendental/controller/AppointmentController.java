@@ -47,6 +47,17 @@ public class AppointmentController {
     }
 
     /**
+     * GET /appointments/database - Appointments from our database (no Open Dental call).
+     * Optional filters: PatNum, AptStatus, dateStart, dateEnd (yyyy-MM-dd).
+     */
+    @GetMapping("/database")
+    public ResponseEntity<List<AppointmentResponse>> getAppointmentsFromDatabase(
+            @RequestParam Map<String, String> params) {
+
+        return ResponseEntity.ok(appointmentService.getAppointmentsFromDatabase(params));
+    }
+
+    /**
      * GET /appointments/ASAP - Get ASAP list
      */
     @GetMapping("/ASAP")

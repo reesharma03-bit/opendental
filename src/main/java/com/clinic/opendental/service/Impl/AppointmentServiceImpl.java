@@ -30,6 +30,7 @@ public class AppointmentServiceImpl implements AppointmentService {
     private final OpenDentalClient client;
     private final AppointmentRepository appointmentRepository;
     private final ClinicRepository clinicRepository;
+    private final OdSyncService odSync;
 
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -67,6 +68,25 @@ public class AppointmentServiceImpl implements AppointmentService {
                     .map(this::toAppointmentResponse)
                     .collect(Collectors.toList());
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> getAppointmentsFromDatabase(Map<String, String> params) {
+        Map<String, String> filters = params == null ? Map.of() : params;
+        Long patNum = filters.containsKey("PatNum") ? Long.valueOf(filters.get("PatNum")) : null;
+        String aptStatus = filters.get("AptStatus");
+        java.time.LocalDate dateStart = LocalValues.date(filters.get("dateStart"));
+        java.time.LocalDate dateEnd = LocalValues.date(filters.get("dateEnd"));
+        return appointmentRepository.findByIdClinicId(resolveClinicId()).stream()
+                .filter(a -> patNum == null || patNum.equals(a.getPatNum()))
+                .filter(a -> aptStatus == null || aptStatus.equalsIgnoreCase(a.getAptStatus()))
+                .filter(a -> dateStart == null || (a.getAptDateTime() != null && !a.getAptDateTime().toLocalDate().isBefore(dateStart)))
+                .filter(a -> dateEnd == null || (a.getAptDateTime() != null && !a.getAptDateTime().toLocalDate().isAfter(dateEnd)))
+                .sorted(java.util.Comparator.comparing(Appointment::getAptDateTime,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .map(this::toAppointmentResponse)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -120,126 +140,197 @@ public class AppointmentServiceImpl implements AppointmentService {
         }
     }
 
+    // Writes go to our database first and are then pushed to Open Dental (right away
+    // when it is reachable, otherwise from the retry queue). A new appointment has a
+    // temporary negative AptNum until Open Dental assigns one.
+
     @Override
-    @Transactional
     public AppointmentResponse createAppointment(CreateAppointmentRequest request) {
         log.info("Creating new appointment for patient {}", request.getPatNum());
-        try {
-            AppointmentResponse response = client.createAppointment(request);
-            log.info("Created appointment {} successfully", response.getAptNum());
-            saveAppointmentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create appointment via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.APPOINTMENT, OdSyncService.CREATE, request,
+                aptNum -> appointmentRepository.save(Appointment.builder()
+                        .id(new AppointmentId(clinicId, aptNum))
+                        .patNum(request.getPatNum())
+                        .aptStatus(request.getAptStatus() != null ? request.getAptStatus() : "Scheduled")
+                        .pattern(request.getPattern())
+                        .confirmed(request.getConfirmed())
+                        .op(request.getOp())
+                        .note(request.getNote())
+                        .provNum(request.getProvNum())
+                        .provHyg(request.getProvHyg())
+                        .aptDateTime(LocalValues.dateTime(request.getAptDateTime()))
+                        .assistant(request.getAssistant())
+                        .clinicNum(request.getClinicNum())
+                        .isHygiene(request.getIsHygiene())
+                        .dateTimeArrived(LocalValues.dateTime(request.getDateTimeArrived()))
+                        .dateTimeSeated(LocalValues.dateTime(request.getDateTimeSeated()))
+                        .dateTimeDismissed(LocalValues.dateTime(request.getDateTimeDismissed()))
+                        .isNewPatient(request.getIsNewPatient())
+                        .priority(request.getPriority())
+                        .appointmentTypeNum(request.getAppointmentTypeNum())
+                        .secUserNumEntry(request.getSecUserNumEntry())
+                        .colorOverride(request.getColorOverride())
+                        .patternSecondary(request.getPatternSecondary())
+                        .isMirrored(request.getIsMirrored())
+                        .build()));
+        return loadSavedAppointment(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public AppointmentResponse createPlannedAppointment(PlannedAppointmentRequest request) {
         log.info("Creating planned appointment for patient {}", request.getPatNum());
-        try {
-            AppointmentResponse response = client.createPlannedAppointment(request);
-            log.info("Created planned appointment {} successfully", response.getAptNum());
-            saveAppointmentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create planned appointment: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create planned appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.APPOINTMENT, OdSyncService.PLANNED, request,
+                aptNum -> appointmentRepository.save(Appointment.builder()
+                        .id(new AppointmentId(clinicId, aptNum))
+                        .patNum(request.getPatNum())
+                        .aptStatus("Planned")
+                        .appointmentTypeNum(request.getAppointmentTypeNum())
+                        .pattern(request.getPattern())
+                        .confirmed(request.getConfirmed())
+                        .note(request.getNote())
+                        .provNum(request.getProvNum())
+                        .provHyg(request.getProvHyg())
+                        .clinicNum(request.getClinicNum())
+                        .isHygiene(request.getIsHygiene())
+                        .isNewPatient(request.getIsNewPatient())
+                        .priority(request.getPriority())
+                        .patternSecondary(request.getPatternSecondary())
+                        .build()));
+        return loadSavedAppointment(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public AppointmentResponse schedulePlannedAppointment(SchedulePlannedRequest request) {
         log.info("Scheduling planned appointment {}", request.getAptNum());
-        try {
-            AppointmentResponse response = client.schedulePlannedAppointment(request);
-            log.info("Scheduled planned appointment {} successfully", response.getAptNum());
-            saveAppointmentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to schedule planned appointment: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to schedule planned appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, request.getAptNum());
+        Appointment planned = appointmentRepository.findById(new AppointmentId(clinicId, request.getAptNum()))
+                .orElseThrow(() -> appointmentNotFound(request.getAptNum()));
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.APPOINTMENT, OdSyncService.SCHEDULE_PLANNED,
+                request, aptNum -> appointmentRepository.save(Appointment.builder()
+                        .id(new AppointmentId(clinicId, aptNum))
+                        .patNum(planned.getPatNum())
+                        .aptStatus("Scheduled")
+                        .aptDateTime(LocalValues.dateTime(request.getAptDateTime()))
+                        .provNum(request.getProvNum())
+                        .op(request.getOp())
+                        .confirmed(request.getConfirmed() != null ? request.getConfirmed() : planned.getConfirmed())
+                        .note(request.getNote() != null ? request.getNote() : planned.getNote())
+                        .pattern(planned.getPattern())
+                        .provHyg(planned.getProvHyg())
+                        .clinicNum(planned.getClinicNum())
+                        .isHygiene(planned.getIsHygiene())
+                        .isNewPatient(planned.getIsNewPatient())
+                        .priority(planned.getPriority())
+                        .appointmentTypeNum(planned.getAppointmentTypeNum())
+                        .patternSecondary(planned.getPatternSecondary())
+                        .build()));
+        return loadSavedAppointment(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public AppointmentResponse createWebSchedAppointment(WebSchedRequest request) {
         log.info("Creating WebSched appointment for patient {}", request.getPatNum());
-        try {
-            AppointmentResponse response = client.createWebSchedAppointment(request);
-            log.info("Created WebSched appointment {} successfully", response.getAptNum());
-            saveAppointmentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create WebSched appointment: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create WebSched appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.APPOINTMENT, OdSyncService.WEBSCHED, request,
+                aptNum -> appointmentRepository.save(Appointment.builder()
+                        .id(new AppointmentId(clinicId, aptNum))
+                        .patNum(request.getPatNum())
+                        .aptStatus("Scheduled")
+                        .aptDateTime(LocalValues.dateTime(request.getDateTimeStart()))
+                        .provNum(request.getProvNum())
+                        .op(request.getOpNum())
+                        .build()));
+        return loadSavedAppointment(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public AppointmentResponse updateAppointment(Long aptNum, UpdateAppointmentRequest request) {
         log.info("Updating appointment {}", aptNum);
-        try {
-            AppointmentResponse response = client.updateAppointment(aptNum, request);
-            log.info("Updated appointment {} successfully", aptNum);
-            saveAppointmentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to update appointment via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to update appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, aptNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.APPOINTMENT, OdSyncService.UPDATE, aptNum, request,
+                () -> changeAppointment(clinicId, aptNum, a -> {
+                    if (request.getAptStatus() != null) a.setAptStatus(request.getAptStatus());
+                    if (request.getPattern() != null) a.setPattern(request.getPattern());
+                    if (request.getConfirmed() != null) a.setConfirmed(request.getConfirmed());
+                    if (request.getOp() != null) a.setOp(request.getOp());
+                    if (request.getNote() != null) a.setNote(request.getNote());
+                    if (request.getProvNum() != null) a.setProvNum(request.getProvNum());
+                    if (request.getProvHyg() != null) a.setProvHyg(request.getProvHyg());
+                    if (request.getAptDateTime() != null) a.setAptDateTime(LocalValues.dateTime(request.getAptDateTime()));
+                    if (request.getAssistant() != null) a.setAssistant(request.getAssistant());
+                    if (request.getClinicNum() != null) a.setClinicNum(request.getClinicNum());
+                    if (request.getIsHygiene() != null) a.setIsHygiene(request.getIsHygiene());
+                    if (request.getDateTimeArrived() != null) a.setDateTimeArrived(LocalValues.dateTime(request.getDateTimeArrived()));
+                    if (request.getDateTimeSeated() != null) a.setDateTimeSeated(LocalValues.dateTime(request.getDateTimeSeated()));
+                    if (request.getDateTimeDismissed() != null) a.setDateTimeDismissed(LocalValues.dateTime(request.getDateTimeDismissed()));
+                    if (request.getIsNewPatient() != null) a.setIsNewPatient(request.getIsNewPatient());
+                    if (request.getPriority() != null) a.setPriority(request.getPriority());
+                    if (request.getAppointmentTypeNum() != null) a.setAppointmentTypeNum(request.getAppointmentTypeNum());
+                    if (request.getUnschedStatus() != null) a.setUnschedStatus(request.getUnschedStatus());
+                    if (request.getColorOverride() != null) a.setColorOverride(request.getColorOverride());
+                    if (request.getPatternSecondary() != null) a.setPatternSecondary(request.getPatternSecondary());
+                    if (request.getIsMirrored() != null) a.setIsMirrored(request.getIsMirrored());
+                }));
+        return loadSavedAppointment(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public void breakAppointment(Long aptNum, BreakAppointmentRequest request) {
         log.info("Breaking appointment {}", aptNum);
-        try {
-            client.breakAppointment(aptNum, request);
-            log.info("Appointment {} broken successfully", aptNum);
-        } catch (Exception e) {
-            log.error("Failed to break appointment via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to break appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, aptNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.APPOINTMENT, OdSyncService.BREAK, aptNum, request,
+                () -> changeAppointment(clinicId, aptNum, a -> a.setAptStatus(
+                        "true".equalsIgnoreCase(request.getSendToUnscheduledList()) ? "UnschedList" : "Broken")));
+        odSync.pushNow(taskId);
     }
 
     @Override
-    @Transactional
     public void appendNote(Long aptNum, NoteRequest request) {
         log.info("Appending note to appointment {}", aptNum);
-        try {
-            client.appendNote(aptNum, request);
-            log.info("Note appended to appointment {} successfully", aptNum);
-        } catch (Exception e) {
-            log.error("Failed to append note via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to append note: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, aptNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.APPOINTMENT, OdSyncService.NOTE, aptNum, request,
+                () -> changeAppointment(clinicId, aptNum, a -> a.setNote(
+                        a.getNote() == null || a.getNote().isEmpty() ? request.getNote() : a.getNote() + "\n" + request.getNote())));
+        odSync.pushNow(taskId);
     }
 
     @Override
-    @Transactional
     public void confirmAppointment(Long aptNum, ConfirmAppointmentRequest request) {
         log.info("Confirming appointment {}", aptNum);
-        try {
-            client.confirmAppointment(aptNum, request);
-            log.info("Appointment {} confirmed successfully", aptNum);
-        } catch (Exception e) {
-            log.error("Failed to confirm appointment via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to confirm appointment: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, aptNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.APPOINTMENT, OdSyncService.CONFIRM, aptNum, request,
+                () -> changeAppointment(clinicId, aptNum, a -> {
+                    // confirmVal is a name only Open Dental can map; its copy arrives with the next sync.
+                    if (request.getDefNum() != null) a.setConfirmed(request.getDefNum());
+                }));
+        odSync.pushNow(taskId);
+    }
+
+    private void changeAppointment(UUID clinicId, Long aptNum, java.util.function.Consumer<Appointment> change) {
+        Appointment appointment = appointmentRepository.findById(new AppointmentId(clinicId, aptNum))
+                .orElseThrow(() -> appointmentNotFound(aptNum));
+        change.accept(appointment);
+        appointmentRepository.save(appointment);
+    }
+
+    private AppointmentResponse loadSavedAppointment(UUID clinicId, long aptNum) {
+        return appointmentRepository.findById(new AppointmentId(clinicId, aptNum))
+                .map(this::toAppointmentResponse)
+                .orElseThrow(() -> appointmentNotFound(aptNum));
+    }
+
+    private static ApiException appointmentNotFound(Long aptNum) {
+        return new ApiException(HttpStatus.NOT_FOUND, "Appointment not found with AptNum: " + aptNum);
     }
 
     // ========== Database sync helpers ==========
@@ -254,6 +345,9 @@ public class AppointmentServiceImpl implements AppointmentService {
     @Transactional
     protected void saveAppointmentToDb(AppointmentResponse dto) {
         try {
+            if (odSync.hasQueuedChanges(resolveClinicId(), OdSyncService.APPOINTMENT, dto.getAptNum())) {
+                return; // our newer copy has not reached Open Dental yet
+            }
             Appointment appointment = toAppointmentEntity(dto);
             appointmentRepository.save(appointment);
             log.info("Appointment {} synced to database", dto.getAptNum());

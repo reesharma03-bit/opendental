@@ -39,6 +39,7 @@ public class PatientServiceImpl implements PatientService {
     private final OpenDentalClient client;
     private final PatientRepository patientRepository;
     private final ClinicRepository clinicRepository;
+    private final OdSyncService odSync;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -60,6 +61,16 @@ public class PatientServiceImpl implements PatientService {
                     .filter(p -> matchesSearchParams(p, params))
                     .collect(Collectors.toList());
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PatientResponse> getPatientsFromDatabase(Long patNum) {
+        return patientRepository.findByIdClinicId(resolveClinicId()).stream()
+                .filter(p -> patNum == null || patNum.equals(p.getId().getPatNum()))
+                .sorted(java.util.Comparator.comparing(p -> p.getId().getPatNum()))
+                .map(this::toPatientResponse)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -136,62 +147,89 @@ public class PatientServiceImpl implements PatientService {
         }
     }
 
+    /**
+     * Saved to our database first; Open Dental gets it right after (or from the retry
+     * queue when it is unreachable). Until then the patient has a temporary negative PatNum.
+     */
     @Override
-    @Transactional
     public PatientResponse createPatient(CreatePatientRequest request) {
-        try {
-            PatientResponse response = client.createPatient(request, null, resolveActiveApiKey());
-            savePatientToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create patient via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create patient: " + e.getMessage() + openDentalAuthHint(e));
-        }
+        UUID clinicId = resolveClinicId();
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.PATIENT, OdSyncService.CREATE, request,
+                patNum -> {
+                    Patient patient = Patient.builder()
+                            .id(new PatientId(clinicId, patNum))
+                            .patStatus("Patient")
+                            .premed(false)
+                            .build();
+                    applyRequest(patient, OdSyncService.convert(request, UpdatePatientRequest.class));
+                    patientRepository.save(patient);
+                });
+        return loadSavedPatient(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public PatientResponse updatePatient(Long patNum, UpdatePatientRequest request) {
-        try {
-            PatientResponse response = client.updatePatient(patNum, request, null, resolveActiveApiKey());
-            savePatientToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to update patient via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to update patient: " + e.getMessage() + openDentalAuthHint(e));
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, patNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.PATIENT, OdSyncService.UPDATE, patNum, request,
+                () -> {
+                    Patient patient = patientRepository.findById(new PatientId(clinicId, patNum))
+                            .orElseThrow(() -> patientNotFound(patNum));
+                    applyRequest(patient, request);
+                    patientRepository.save(patient);
+                });
+        return loadSavedPatient(clinicId, odSync.pushNow(taskId));
     }
 
-    /**
-     * Open Dental authenticates every API call with the active clinic's key. A blank
-     * key falls back to the globally configured {@code opendental.api-key}, which the
-     * RestTemplate applies when the request has no Authorization header yet.
-     */
-    private String resolveActiveApiKey() {
-        return clinicRepository.findByIsActiveTrue().stream()
-                .map(Clinic::getApiKey)
-                .filter(key -> key != null && !key.isBlank())
-                .findFirst()
-                .orElse(null);
+    private PatientResponse loadSavedPatient(UUID clinicId, long patNum) {
+        return patientRepository.findById(new PatientId(clinicId, patNum))
+                .map(this::toPatientResponse)
+                .orElseThrow(() -> patientNotFound(patNum));
     }
 
-    /**
-     * The upstream message is otherwise opaque ("400 Bad Request: Malformed API
-     * request."), so point at the credential that Open Dental is complaining about.
-     */
-    private String openDentalAuthHint(Exception e) {
-        String message = String.valueOf(e.getMessage());
-        boolean credentialProblem = message.contains("401")
-                || message.contains("Not Authorized")
-                || message.contains("Malformed API request")
-                || message.contains("Authorization");
-        return credentialProblem
-                ? " Open Dental rejected the API credentials. Set OPENDENTAL_API_KEY (or the active clinic's api_key)"
-                + " to a key created in Open Dental under Setup > Advanced Setup > API, formatted as"
-                + " \"ODFHIR <DeveloperKey>/<CustomerKey>\"."
-                : "";
+    private static ApiException patientNotFound(Long patNum) {
+        return new ApiException(HttpStatus.NOT_FOUND, "Patient not found with PatNum: " + patNum);
+    }
+
+    /** Copies the fields the request sets onto our copy of the patient. */
+    private static void applyRequest(Patient p, UpdatePatientRequest r) {
+        if (r.getLName() != null) p.setLName(r.getLName());
+        if (r.getFName() != null) p.setFName(r.getFName());
+        if (r.getMiddleI() != null) p.setMiddleI(r.getMiddleI());
+        if (r.getPreferred() != null) p.setPreferred(r.getPreferred());
+        if (r.getPatStatus() != null) p.setPatStatus(r.getPatStatus());
+        if (r.getGender() != null) p.setGender(r.getGender());
+        if (r.getPosition() != null) p.setPosition(r.getPosition());
+        if (r.getBirthdate() != null) p.setBirthdate(LocalValues.date(r.getBirthdate()));
+        if (r.getSSN() != null) p.setSsn(r.getSSN());
+        if (r.getAddress() != null) p.setAddress(r.getAddress());
+        if (r.getAddress2() != null) p.setAddress2(r.getAddress2());
+        if (r.getCity() != null) p.setCity(r.getCity());
+        if (r.getState() != null) p.setState(r.getState());
+        if (r.getZip() != null) p.setZip(r.getZip());
+        if (r.getHmPhone() != null) p.setHmPhone(r.getHmPhone());
+        if (r.getWkPhone() != null) p.setWkPhone(r.getWkPhone());
+        if (r.getWirelessPhone() != null) p.setWirelessPhone(r.getWirelessPhone());
+        if (r.getGuarantor() != null) p.setGuarantor(r.getGuarantor());
+        if (r.getEmail() != null) p.setEmail(r.getEmail());
+        if (r.getPriProv() != null) p.setPriProv(r.getPriProv());
+        if (r.getSecProv() != null) p.setSecProv(r.getSecProv());
+        if (r.getFeeSched() != null) p.setFeeSched(r.getFeeSched());
+        if (r.getBillingType() != null) p.setBillingType(r.getBillingType());
+        if (r.getChartNumber() != null) p.setChartNumber(r.getChartNumber());
+        if (r.getMedicaidID() != null) p.setMedicaidId(r.getMedicaidID());
+        if (r.getEmployerNum() != null) p.setEmployerNum(r.getEmployerNum());
+        if (r.getDateFirstVisit() != null) p.setDateFirstVisit(LocalValues.date(r.getDateFirstVisit()));
+        if (r.getClinicNum() != null) p.setClinicNum(r.getClinicNum());
+        if (r.getPremed() != null) p.setPremed(r.getPremed());
+        if (r.getWard() != null) p.setWard(r.getWard());
+        if (r.getPreferConfirmMethod() != null) p.setPreferConfirmMethod(r.getPreferConfirmMethod());
+        if (r.getPreferContactMethod() != null) p.setPreferContactMethod(r.getPreferContactMethod());
+        if (r.getPreferRecallMethod() != null) p.setPreferRecallMethod(r.getPreferRecallMethod());
+        if (r.getLanguage() != null) p.setLanguage(r.getLanguage());
+        if (r.getAdmitDate() != null) p.setAdmitDate(LocalValues.date(r.getAdmitDate()));
+        if (r.getSuperFamily() != null) p.setSuperFamily(r.getSuperFamily());
+        if (r.getTxtMsgOk() != null) p.setTxtMsgOk(r.getTxtMsgOk());
     }
 
     // ========== Database sync helpers ==========
@@ -206,6 +244,9 @@ public class PatientServiceImpl implements PatientService {
     @Transactional
     protected void savePatientToDb(PatientResponse dto) {
         try {
+            if (odSync.hasQueuedChanges(resolveClinicId(), OdSyncService.PATIENT, dto.getPatNum())) {
+                return; // our newer copy has not reached Open Dental yet
+            }
             Patient patient = toPatientEntity(dto);
             patientRepository.save(patient);
         } catch (Exception e) {

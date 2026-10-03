@@ -56,6 +56,8 @@ export interface ResourceMeta {
   listPath?: (params: Record<string, string>) => string;
   params: ParamMeta[];
   paged?: boolean;
+  /** Updates always go to {basePath}/{pk}, even for collection-style updates (our database API). */
+  keyedUpdates?: boolean;
   /** Response of GET is a single object keyed by patient (no list endpoint). */
   singleByPatient?: boolean;
   getSingle?: boolean;
@@ -555,7 +557,7 @@ export function toRows(data: unknown): Record<string, unknown>[] {
 }
 
 export function updatePath(r: ResourceMeta, row: Record<string, unknown>): string {
-  if (r.update?.style === 'collection') return r.basePath;
+  if (r.update?.style === 'collection' && !r.keyedUpdates) return r.basePath;
   return `${r.basePath}/${encodeURIComponent(String(getField(row, r.pk) ?? ''))}`;
 }
 

@@ -31,6 +31,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final OpenDentalClient client;
     private final DocumentRepository documentRepository;
     private final ClinicRepository clinicRepository;
+    private final OdSyncService odSync;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -67,32 +68,28 @@ public class DocumentServiceImpl implements DocumentService {
         }
     }
 
+    // Upload, SetByUrl, update and delete go to our database first and are then pushed
+    // to Open Dental (right away when it is reachable, otherwise from the retry queue).
+    // A new document has a temporary negative DocNum until Open Dental assigns one.
+
     @Override
-    @Transactional
     public DocumentResponse uploadDocument(UploadDocumentRequest request) {
-        try {
-            DocumentResponse response = client.uploadDocument(request);
-            saveDocumentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to upload document via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to upload document: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.DOCUMENT, OdSyncService.CREATE, request,
+                docNum -> documentRepository.save(newDocument(clinicId, docNum, request.getPatNum(),
+                        OdSyncService.convert(request, UpdateDocumentRequest.class))));
+        return loadSavedDocument(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public DocumentResponse setByUrl(SetByUrlRequest request) {
-        try {
-            DocumentResponse response = client.setByUrl(request);
-            saveDocumentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to set document by URL via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to set document by URL: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.DOCUMENT, OdSyncService.SET_BY_URL, request,
+                docNum -> documentRepository.save(newDocument(clinicId, docNum, request.getPatNum(),
+                        OdSyncService.convert(request, UpdateDocumentRequest.class))));
+        return loadSavedDocument(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
@@ -146,31 +143,58 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    @Transactional
     public DocumentResponse updateDocument(Long docNum, UpdateDocumentRequest request) {
-        try {
-            DocumentResponse response = client.updateDocument(docNum, request);
-            saveDocumentToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to update document via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to update document: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.DOCUMENT, docNum);
+        long taskId = odSync.recordChange(clinicId, OdSyncService.DOCUMENT, OdSyncService.UPDATE, docNum, request,
+                () -> {
+                    Document document = documentRepository.findById(new DocumentId(clinicId, docNum))
+                            .orElseThrow(() -> documentNotFound(docNum));
+                    applyRequest(document, request);
+                    documentRepository.save(document);
+                });
+        return loadSavedDocument(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public void deleteDocument(Long docNum) {
-        try {
-            client.deleteDocument(docNum);
-            UUID clinicId = resolveClinicId();
-            documentRepository.deleteById(new DocumentId(clinicId, docNum));
-        } catch (Exception e) {
-            log.error("Failed to delete document via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to delete document: " + e.getMessage());
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.DOCUMENT, docNum);
+        Long taskId = odSync.recordDelete(clinicId, OdSyncService.DOCUMENT, docNum,
+                () -> documentRepository.deleteById(new DocumentId(clinicId, docNum)));
+        if (taskId != null) {
+            odSync.pushNow(taskId);
         }
+    }
+
+    private static Document newDocument(UUID clinicId, long docNum, Long patNum, UpdateDocumentRequest fields) {
+        Document document = Document.builder()
+                .id(new DocumentId(clinicId, docNum))
+                .patNum(patNum)
+                .imgType("Document")
+                .build();
+        applyRequest(document, fields);
+        return document;
+    }
+
+    private static void applyRequest(Document d, UpdateDocumentRequest r) {
+        if (r.getDescription() != null) d.setDescription(r.getDescription());
+        if (r.getDateCreated() != null) d.setDateCreated(LocalValues.dateTime(r.getDateCreated()));
+        if (r.getDocCategory() != null) d.setDocCategory(r.getDocCategory());
+        if (r.getImgType() != null) d.setImgType(r.getImgType());
+        if (r.getToothNumbers() != null) d.setToothNumbers(r.getToothNumbers());
+        if (r.getProvNum() != null) d.setProvNum(r.getProvNum());
+        if (r.getPrintHeading() != null) d.setPrintHeading(r.getPrintHeading());
+    }
+
+    private DocumentResponse loadSavedDocument(UUID clinicId, long docNum) {
+        return documentRepository.findById(new DocumentId(clinicId, docNum))
+                .map(this::toDocumentResponse)
+                .orElseThrow(() -> documentNotFound(docNum));
+    }
+
+    private static ApiException documentNotFound(Long docNum) {
+        return new ApiException(HttpStatus.NOT_FOUND, "Document not found with DocNum: " + docNum);
     }
 
     // ========== Database sync helpers ==========
@@ -185,6 +209,9 @@ public class DocumentServiceImpl implements DocumentService {
     @Transactional
     protected void saveDocumentToDb(DocumentResponse dto) {
         try {
+            if (odSync.hasQueuedChanges(resolveClinicId(), OdSyncService.DOCUMENT, dto.getDocNum())) {
+                return; // our newer copy has not reached Open Dental yet
+            }
             Document document = toDocumentEntity(dto);
             documentRepository.save(document);
         } catch (Exception e) {
@@ -201,11 +228,24 @@ public class DocumentServiceImpl implements DocumentService {
         return clinics.get(0).getId();
     }
 
+    /** Open Dental returns PatNum as text on documents. */
+    private static Long parsePatNum(String patNum) {
+        if (patNum == null || patNum.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(patNum.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private Document toDocumentEntity(DocumentResponse dto) {
         UUID clinicId = resolveClinicId();
 
         Document.DocumentBuilder builder = Document.builder()
                 .id(new DocumentId(clinicId, dto.getDocNum()))
+                .patNum(parsePatNum(dto.getPatNum()))
                 .description(dto.getDescription())
                 .note(dto.getNote())
                 .imgType(dto.getImgType())
@@ -254,6 +294,7 @@ public class DocumentServiceImpl implements DocumentService {
     private DocumentResponse toDocumentResponse(Document entity) {
         DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
                 .DocNum(entity.getId().getDocNum())
+                .PatNum(entity.getPatNum() != null ? String.valueOf(entity.getPatNum()) : null)
                 .Description(entity.getDescription())
                 .Note(entity.getNote())
                 .DocCategory(entity.getDocCategory())

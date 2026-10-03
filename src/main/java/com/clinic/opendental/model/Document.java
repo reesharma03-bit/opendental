@@ -19,6 +19,9 @@ public class Document {
     @EmbeddedId
     private DocumentId id;
 
+    @Column(name = "pat_num")
+    private Long patNum;
+
     @Column(name = "description")
     private String description;
 

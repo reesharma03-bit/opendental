@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +47,7 @@ import com.clinic.opendental.model.ref.ToothInitial;
 import com.clinic.opendental.model.ref.ToothInitialId;
 import com.clinic.opendental.repository.AppointmentRepository;
 import com.clinic.opendental.repository.ClinicRepository;
+import com.clinic.opendental.repository.OdSyncTaskRepository;
 import com.clinic.opendental.repository.DocumentRepository;
 import com.clinic.opendental.repository.PatientRepository;
 import com.clinic.opendental.repository.ProcedureLogRepository;
@@ -74,6 +76,10 @@ public class SyncService {
     private final ScheduleRepository scheduleRepository;
         private final ToothInitialRepository toothInitialRepository;
     private final OpenDentalClient client;
+
+    /** Optional so code that builds this service by hand need not supply it. */
+    @Autowired(required = false)
+    private OdSyncTaskRepository odSyncTaskRepository;
 
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -462,6 +468,10 @@ public class SyncService {
         Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
                 .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
         try {
+            if (hasQueuedChanges(clinic.getId(), "patient", dto.getPatNum())) {
+                return new SyncResult(0, 0, "Skipped patient " + dto.getPatNum()
+                        + ": a newer local change is still waiting to reach Open Dental");
+            }
             savePatientToDb(dto, clinic.getId());
             return new SyncResult(1, 0,
                     "Saved patient " + dto.getPatNum() + " from clinic " + clinicCode);
@@ -479,6 +489,10 @@ public class SyncService {
         Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
                 .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
         try {
+            if (hasQueuedChanges(clinic.getId(), "appointment", dto.getAptNum())) {
+                return new SyncResult(0, 0, "Skipped appointment " + dto.getAptNum()
+                        + ": a newer local change is still waiting to reach Open Dental");
+            }
             ensurePatientExists(dto.getPatNum(), clinic);
             saveAppointmentToDb(dto, clinic.getId());
             return new SyncResult(1, 0,
@@ -487,6 +501,12 @@ public class SyncService {
             log.error("Failed to save appointment {} from webhook: {}", dto.getAptNum(), e.getMessage());
             return SyncResult.failure("Failed to save appointment " + dto.getAptNum() + ": " + e.getMessage());
         }
+    }
+
+    /** A local change to this record has not reached Open Dental yet (see OdSyncService). */
+    private boolean hasQueuedChanges(UUID clinicId, String entityType, Long id) {
+        return odSyncTaskRepository != null && id != null
+                && odSyncTaskRepository.existsForRecord(clinicId, entityType, id, OdSyncTaskRepository.OPEN);
     }
 
     /**
@@ -524,6 +544,10 @@ public class SyncService {
         Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
                 .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
         try {
+            if (hasQueuedChanges(clinic.getId(), "procedurelog", dto.getProcNum())) {
+                return new SyncResult(0, 0, "Skipped procedurelog " + dto.getProcNum()
+                        + ": a newer local change is still waiting to reach Open Dental");
+            }
             saveProcedureLogToDb(dto, clinic.getId());
             return new SyncResult(1, 0,
                     "Saved procedure log " + dto.getProcNum() + " from clinic " + clinicCode);
@@ -541,6 +565,10 @@ public class SyncService {
         Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
                 .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
         try {
+            if (hasQueuedChanges(clinic.getId(), "document", dto.getDocNum())) {
+                return new SyncResult(0, 0, "Skipped document " + dto.getDocNum()
+                        + ": a newer local change is still waiting to reach Open Dental");
+            }
             saveDocumentToDb(dto, clinic.getId());
             return new SyncResult(1, 0,
                     "Saved document " + dto.getDocNum() + " from clinic " + clinicCode);
@@ -1070,9 +1098,22 @@ public class SyncService {
         return builder.build();
     }
 
+    /** Open Dental returns PatNum as text on documents. */
+    private static Long parsePatNum(String patNum) {
+        if (patNum == null || patNum.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(patNum.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private Document toDocumentEntity(DocumentResponse dto, UUID clinicId) {
         Document.DocumentBuilder builder = Document.builder()
                 .id(new DocumentId(clinicId, dto.getDocNum()))
+                .patNum(parsePatNum(dto.getPatNum()))
                 .description(dto.getDescription())
                 .note(dto.getNote())
                 .imgType(dto.getImgType())

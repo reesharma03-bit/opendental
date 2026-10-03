@@ -570,6 +570,56 @@ create index if not exists sync_runs_started_at_idx on public.sync_runs (started
 comment on table public.sync_runs is 'Tracks every sync operation (webhook, initial, reconciliation) per clinic.';
 
 -- ============================================================================
+-- 8b. Open Dental sync queue - local changes waiting to be pushed to Open Dental
+-- ============================================================================
+-- Kept in sync with supabase-od-sync-queue.sql (the standalone migration).
+
+create table if not exists public.od_sync_queue (
+  id bigserial primary key,
+  clinic_id uuid not null references public.clinics(id) on delete cascade,
+  entity_type text not null,               -- patient | appointment | document | procedurelog
+  operation text not null,                 -- CREATE | UPDATE | DELETE | PLANNED | SCHEDULE_PLANNED | WEBSCHED | BREAK | NOTE | CONFIRM | SET_BY_URL | INSURANCE_HISTORY
+  local_id bigint not null,                -- key of the row in our table (negative while temporary)
+  od_id bigint,                            -- key assigned by Open Dental, once known
+  payload text,                            -- JSON request for Open Dental; cleared once pushed
+  status text not null default 'PENDING',  -- PENDING | IN_PROGRESS | DONE | FAILED | CANCELLED
+  attempts integer not null default 0,
+  last_error text,
+  next_attempt_at timestamp with time zone not null default now(),
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now()
+);
+
+create index if not exists od_sync_queue_due_idx on public.od_sync_queue (status, next_attempt_at);
+create index if not exists od_sync_queue_record_idx on public.od_sync_queue (clinic_id, entity_type, local_id);
+
+alter table public.od_sync_queue enable row level security;
+
+comment on table public.od_sync_queue is 'Outbox of local changes waiting to be pushed to Open Dental.';
+
+-- ============================================================================
+-- 8c. Open Dental resource records - every API resource without its own table
+-- ============================================================================
+-- Kept in sync with supabase-od-resource-records.sql (the standalone migration).
+
+create table if not exists public.od_resource_records (
+  clinic_id uuid not null references public.clinics(id) on delete cascade,
+  resource text not null,        -- Open Dental API resource, e.g. 'allergies', 'claims'
+  record_key text not null,      -- the record's Open Dental key (e.g. AllergyNum); a hash when it has none
+  pat_num bigint,                -- patient the record belongs to, when it has one
+  data jsonb not null,           -- the record exactly as Open Dental returned it
+  synced_at timestamp with time zone not null default now(),
+  primary key (clinic_id, resource, record_key)
+);
+
+create index if not exists od_resource_records_resource_idx on public.od_resource_records (clinic_id, resource);
+create index if not exists od_resource_records_pat_num_idx on public.od_resource_records (clinic_id, pat_num);
+
+alter table public.od_resource_records enable row level security;
+
+comment on table public.od_resource_records is 'Copy of Open Dental API resources without a dedicated table, one JSON row per record.';
+
+-- ============================================================================
 -- 9. RLS Policies - Multi-Tenant Data Isolation
 -- ============================================================================
 -- Enables Row Level Security so each clinic/tenant can only access its own rows.

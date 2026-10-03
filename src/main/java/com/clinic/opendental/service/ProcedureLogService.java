@@ -13,6 +13,9 @@ public interface ProcedureLogService {
     // GET multiple
     List<ProcedureLogResponse> getProcedureLogs(Map<String, String> params);
 
+    /** Procedure logs from our database only; patNum narrows to one patient. */
+    List<ProcedureLogResponse> getProcedureLogsFromDatabase(Long patNum);
+
     // GET InsuranceHistory
     List<InsuranceHistoryResponse> getInsuranceHistory(Long patNum, Long insSubNum);
 

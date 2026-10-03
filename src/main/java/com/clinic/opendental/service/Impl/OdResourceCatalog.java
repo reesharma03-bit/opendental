@@ -1,0 +1,248 @@
+package com.clinic.opendental.service.Impl;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Open Dental API resources copied into {@code od_resource_records}.
+ *
+ * <p>Patients, appointments and procedure logs have their own Supabase tables, synced by
+ * {@link ReconciliationSyncService}; the dashboard reads and changes them through those
+ * tables ({@link #TYPED}). Pat fields, operatories, schedules and tooth initials also have
+ * typed tables, but are copied here too so every catalog screen reads the same way.
+ * Chart modules are views computed per patient, not records, so they are not copied.</p>
+ */
+final class OdResourceCatalog {
+
+    /** Parent sources that are not themselves mirrored resources. */
+    static final String PATIENTS = "patients";
+    static final String APPOINTMENTS = "appointments";
+
+    /**
+     * @param resource    name stored in {@code od_resource_records.resource}
+     * @param path        Open Dental path; {@code {id}} is replaced by the parent id
+     * @param keyField    field that identifies a row; a hash of the row is used when absent
+     * @param parent      null for a plain list, otherwise where the ids to query by come from:
+     *                    {@link #PATIENTS}, {@link #APPOINTMENTS} or a mirrored resource
+     * @param parentField query parameter (and field of the parent rows) carrying the parent id
+     */
+    record Resource(String resource, String path, String keyField, String parent, String parentField) {
+
+        boolean isList() {
+            return parent == null;
+        }
+
+        /** The parent id is part of the URL, so rows are only unique per parent. */
+        boolean parentInPath() {
+            return path.contains("{id}");
+        }
+    }
+
+    private static Resource list(String resource, String keyField) {
+        return new Resource(resource, "/" + resource, keyField, null, null);
+    }
+
+    private static Resource perParent(String resource, String path, String keyField, String parent, String parentField) {
+        return new Resource(resource, path, keyField, parent, parentField);
+    }
+
+    /** One paged list call each. Synced on every resource sync. */
+    static final List<Resource> LISTS = List.of(
+            // Patients & families
+            list("allergydefs", "AllergyDefNum"),
+            list("diseasedefs", "DiseaseDefNum"),
+            list("diseases", "DiseaseNum"),
+            list("guardians", "GuardianNum"),
+            list("medicationpats", "MedicationPatNum"),
+            list("medications", "MedicationNum"),
+            list("patientnotes", "PatNum"),
+            list("patfielddefs", "PatFieldDefNum"),
+            list("patfields", "PatFieldNum"),
+            list("patplans", "PatPlanNum"),
+            list("patrestrictions", "PatRestrictionNum"),
+            list("pharmacies", "PharmacyNum"),
+            list("recalls", "RecallNum"),
+            list("recalltypes", "RecallTypeNum"),
+            list("rxpats", "RxNum"),
+            list("vitalsigns", "VitalsignNum"),
+            // Scheduling
+            list("appointmenttypes", "AppointmentTypeNum"),
+            list("apptfielddefs", "ApptFieldDefNum"),
+            list("asapcomms", "AsapCommNum"),
+            list("clockevents", "ClockEventNum"),
+            list("histappointments", "HistApptNum"),
+            list("operatories", "OperatoryNum"),
+            list("scheduleops", "ScheduleOpNum"),
+            list("schedules", "ScheduleNum"),
+            // Clinical care
+            list("autonotecontrols", "AutoNoteControlNum"),
+            list("autonotes", "AutoNoteNum"),
+            list("codegroups", "CodeGroupNum"),
+            list("perioexams", "PerioExamNum"),
+            list("procedurecodes", "CodeNum"),
+            list("procnotes", "ProcNoteNum"),
+            list("treatplans", "TreatPlanNum"),
+            // Insurance & billing
+            list("benefits", "BenefitNum"),
+            list("carriers", "CarrierNum"),
+            list("claimforms", "ClaimFormNum"),
+            list("claimpayments", "ClaimPaymentNum"),
+            list("claimprocs", "ClaimProcNum"),
+            list("claims", "ClaimNum"),
+            list("claimtrackings", "ClaimTrackingNum"),
+            list("covcats", "CovCatNum"),
+            list("covspans", "CovSpanNum"),
+            list("deposits", "DepositNum"),
+            list("discountplans", "DiscountPlanNum"),
+            list("fees", "FeeNum"),
+            list("feescheds", "FeeSchedNum"),
+            list("insplans", "PlanNum"),
+            list("inssubs", "InsSubNum"),
+            list("insverifies", "InsVerifyNum"),
+            list("payments", "PayNum"),
+            list("payplanlinks", "PayPlanLinkNum"),
+            list("paysplits", "SplitNum"),
+            list("statements", "StatementNum"),
+            // Practice setup used by the dashboard screens
+            list("providers", "ProvNum"),
+            // Open Dental webhook subscriptions (where Open Dental sends change events)
+            list("subscriptions", "SubscriptionNum"));
+
+    /**
+     * Resources Open Dental only returns per patient or per parent record: one call per
+     * parent, so they run in the full (nightly / Force Sync) pass. Order matters: a
+     * resource's parent is synced before it.
+     */
+    static final List<Resource> PER_PARENT = List.of(
+            perParent("allergies", "/allergies", "AllergyNum", PATIENTS, "PatNum"),
+            perParent("patientraces", "/patientraces", "PatientRaceNum", PATIENTS, "PatNum"),
+            perParent("popups", "/popups", "PopupNum", PATIENTS, "PatNum"),
+            perParent("discountplansubs", "/discountplansubs", "DiscountSubNum", PATIENTS, "PatNum"),
+            perParent("payplans", "/payplans", "PayPlanNum", PATIENTS, "PatNum"),
+            perParent("familymodules", "/familymodules/{id}/Insurance", "InsSubNum", PATIENTS, "PatNum"),
+            perParent("ehrpatients", "/ehrpatients/{id}", "PatNum", PATIENTS, "PatNum"),
+            perParent("toothinitials", "/toothinitials", "ToothInitialNum", PATIENTS, "PatNum"),
+            perParent("apptfields", "/apptfields", "ApptFieldNum", APPOINTMENTS, "AptNum"),
+            perParent("periomeasures", "/periomeasures", "PerioMeasureNum", "perioexams", "PerioExamNum"),
+            perParent("proctps", "/proctps", "ProcTPNum", "treatplans", "TreatPlanNum"),
+            perParent("treatplanattaches", "/treatplanattaches", "TreatPlanAttachNum", "treatplans", "TreatPlanNum"),
+            perParent("eobattaches", "/eobattaches", "EobAttachNum", "claimpayments", "ClaimPaymentNum"),
+            perParent("payplancharges", "/payplancharges", "PayPlanChargeNum", "payplans", "PayPlanNum"),
+            perParent("substitutionlinks", "/substitutionlinks", "SubstitutionLinkNum", "insplans", "PlanNum"));
+
+    /** Every mirrored resource, by name. */
+    static Resource find(String resource) {
+        return java.util.stream.Stream.concat(LISTS.stream(), PER_PARENT.stream())
+                .filter(r -> r.resource().equals(resource))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * How a mirrored resource is written: saved in od_resource_records first, then sent
+     * to Open Dental through od_sync_queue.
+     *
+     * @param defaults           fields Open Dental fills in on create, so our copy shows them right away
+     * @param matchOnCreate      for endpoints that answer a create without a body: the field used to
+     *                           find the new record afterwards (newest record with the same value)
+     * @param updateOnCollection Open Dental updates these with PUT /{resource} (identity in the body)
+     *                           instead of PUT /{resource}/{key}
+     */
+    record Writable(boolean create, boolean update, boolean delete,
+                    Map<String, String> defaults, String matchOnCreate, boolean updateOnCollection) {
+    }
+
+    private static Writable ops(String ops) {
+        return new Writable(ops.contains("C"), ops.contains("U"), ops.contains("D"), Map.of(), null, false);
+    }
+
+    /**
+     * What Open Dental's API lets us change, per resource (C = create, U = update,
+     * D = delete). Resources not listed are read-only in Open Dental's API, so the
+     * dashboard shows them without Add / Edit / Delete.
+     */
+    static final Map<String, Writable> WRITABLE = Map.ofEntries(
+            // Patients & families
+            Map.entry("allergies", new Writable(true, true, true, Map.of("StatusIsActive", "true"), null, false)),
+            Map.entry("allergydefs", new Writable(true, true, false, Map.of("IsHidden", "false"), null, false)),
+            Map.entry("diseasedefs", new Writable(true, false, false, Map.of("IsHidden", "false"), "DiseaseName", false)),
+            Map.entry("diseases", ops("CUD")),
+            Map.entry("ehrpatients", ops("U")),
+            Map.entry("guardians", ops("CUD")),
+            Map.entry("medicationpats", ops("CUD")),
+            Map.entry("medications", ops("CUD")),
+            Map.entry("patientnotes", ops("U")),
+            Map.entry("patfielddefs", ops("CUD")),
+            Map.entry("patfields", new Writable(true, true, true, Map.of(), null, true)),
+            Map.entry("patplans", ops("CUD")),
+            Map.entry("patrestrictions", ops("CD")),
+            Map.entry("popups", ops("CU")),
+            Map.entry("recalls", ops("CU")),
+            Map.entry("vitalsigns", ops("CUD")),
+            // Scheduling
+            Map.entry("appointmenttypes", ops("CUD")),
+            Map.entry("apptfields", ops("CUD")),
+            Map.entry("apptfielddefs", ops("CU")),
+            Map.entry("asapcomms", ops("C")),
+            // Clinical care
+            Map.entry("autonotecontrols", ops("CU")),
+            Map.entry("autonotes", ops("CU")),
+            Map.entry("codegroups", ops("CUD")),
+            Map.entry("perioexams", ops("CUD")),
+            Map.entry("periomeasures", ops("CUD")),
+            Map.entry("procedurecodes", ops("CU")),
+            Map.entry("procnotes", ops("C")),
+            Map.entry("proctps", ops("UD")),
+            Map.entry("toothinitials", ops("CD")),
+            Map.entry("treatplanattaches", ops("CU")),
+            Map.entry("treatplans", ops("CUD")),
+            // Insurance & billing
+            Map.entry("benefits", ops("CUD")),
+            Map.entry("carriers", ops("CU")),
+            Map.entry("claimpayments", ops("CUD")),
+            Map.entry("claimprocs", ops("D")),
+            Map.entry("claims", ops("CUD")),
+            Map.entry("claimtrackings", ops("CU")),
+            Map.entry("covcats", ops("CU")),
+            Map.entry("covspans", ops("CUD")),
+            Map.entry("deposits", ops("CUD")),
+            Map.entry("discountplans", ops("CU")),
+            Map.entry("discountplansubs", ops("CUD")),
+            Map.entry("eobattaches", ops("D")),
+            Map.entry("fees", ops("CUD")),
+            Map.entry("feescheds", ops("CU")),
+            Map.entry("insplans", ops("CU")),
+            Map.entry("inssubs", ops("CUD")),
+            Map.entry("insverifies", new Writable(false, true, false, Map.of(), null, true)),
+            Map.entry("payments", ops("CU")),
+            Map.entry("payplancharges", ops("CUD")),
+            Map.entry("payplanlinks", ops("CUD")),
+            Map.entry("paysplits", ops("U")),
+            Map.entry("statements", ops("CD")),
+            Map.entry("substitutionlinks", ops("CUD")),
+            // Webhook subscriptions
+            Map.entry("subscriptions", ops("CUD")));
+
+    /**
+     * Resources with their own typed table and local-first service. The dashboard reads
+     * and changes them through those (see DatabaseResourceService), not od_resource_records.
+     */
+    static final Map<String, Writable> TYPED = Map.of(
+            "patients", ops("CU"),
+            "appointments", ops("CU"),
+            "procedurelogs", ops("CUD"));
+
+    /** Key field of the typed resources. */
+    static final Map<String, String> TYPED_KEYS = Map.of(
+            "patients", "PatNum",
+            "appointments", "AptNum",
+            "procedurelogs", "ProcNum");
+
+    /** Queue entity type for a mirrored resource, e.g. {@code resource:allergies}. */
+    static String entityType(String resource) {
+        return "resource:" + resource;
+    }
+
+    private OdResourceCatalog() {
+    }
+}

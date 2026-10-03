@@ -17,6 +17,7 @@ import com.clinic.opendental.dto.query.QueryRequest;
 import com.clinic.opendental.dto.query.ShortQueryRequest;
 import com.clinic.opendental.dto.subscription.SubscriptionRequest;
 import com.clinic.opendental.dto.subscription.SubscriptionResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -96,6 +97,23 @@ public class OpenDentalClient {
             headers.set("Authorization", apiKey);
         }
         return headers;
+    }
+
+    /**
+     * Raw GET for any Open Dental list or record, used to mirror resources that have no
+     * typed DTO. {@code path} starts with a slash, e.g. {@code /carriers}.
+     */
+    public JsonNode getRaw(String path, Map<String, String> params, String clinicBaseUrl, String apiKey) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(resolveBaseUrl(clinicBaseUrl) + path);
+        params.forEach(builder::queryParam);
+        HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
+        return restTemplate.exchange(builder.toUriString(), HttpMethod.GET, entity, JsonNode.class).getBody();
+    }
+
+    /** Raw POST / PUT / DELETE for resources without a typed DTO. The body Open Dental returns may be empty. */
+    public JsonNode sendRaw(HttpMethod method, String path, Object body, String clinicBaseUrl, String apiKey) {
+        HttpEntity<Object> entity = new HttpEntity<>(body, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(resolveBaseUrl(clinicBaseUrl) + path, method, entity, JsonNode.class).getBody();
     }
 
     // ========================================================================
@@ -358,11 +376,17 @@ public class OpenDentalClient {
     }
 
     public AppointmentResponse createAppointment(CreateAppointmentRequest request, String clinicBaseUrl) {
+        return createAppointment(request, clinicBaseUrl, null);
+    }
+
+    public AppointmentResponse createAppointment(CreateAppointmentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<CreateAppointmentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/appointments",
-                request,
-                AppointmentResponse.class);
+                HttpMethod.POST,
+                entity,
+                AppointmentResponse.class).getBody();
     }
 
     // --- POST /appointments/Planned ---
@@ -371,11 +395,17 @@ public class OpenDentalClient {
     }
 
     public AppointmentResponse createPlannedAppointment(PlannedAppointmentRequest request, String clinicBaseUrl) {
+        return createPlannedAppointment(request, clinicBaseUrl, null);
+    }
+
+    public AppointmentResponse createPlannedAppointment(PlannedAppointmentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<PlannedAppointmentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/appointments/Planned",
-                request,
-                AppointmentResponse.class);
+                HttpMethod.POST,
+                entity,
+                AppointmentResponse.class).getBody();
     }
 
     // --- POST /appointments/SchedulePlanned ---
@@ -384,11 +414,17 @@ public class OpenDentalClient {
     }
 
     public AppointmentResponse schedulePlannedAppointment(SchedulePlannedRequest request, String clinicBaseUrl) {
+        return schedulePlannedAppointment(request, clinicBaseUrl, null);
+    }
+
+    public AppointmentResponse schedulePlannedAppointment(SchedulePlannedRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<SchedulePlannedRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/appointments/SchedulePlanned",
-                request,
-                AppointmentResponse.class);
+                HttpMethod.POST,
+                entity,
+                AppointmentResponse.class).getBody();
     }
 
     // --- POST /appointments/WebSched ---
@@ -397,11 +433,17 @@ public class OpenDentalClient {
     }
 
     public AppointmentResponse createWebSchedAppointment(WebSchedRequest request, String clinicBaseUrl) {
+        return createWebSchedAppointment(request, clinicBaseUrl, null);
+    }
+
+    public AppointmentResponse createWebSchedAppointment(WebSchedRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<WebSchedRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/appointments/WebSched",
-                request,
-                AppointmentResponse.class);
+                HttpMethod.POST,
+                entity,
+                AppointmentResponse.class).getBody();
     }
 
     // --- PUT /appointments/{aptNum} ---
@@ -410,14 +452,17 @@ public class OpenDentalClient {
     }
 
     public AppointmentResponse updateAppointment(Long aptNum, UpdateAppointmentRequest request, String clinicBaseUrl) {
+        return updateAppointment(aptNum, request, clinicBaseUrl, null);
+    }
+
+    public AppointmentResponse updateAppointment(Long aptNum, UpdateAppointmentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<UpdateAppointmentRequest> entity = new HttpEntity<>(request);
-        ResponseEntity<AppointmentResponse> response = restTemplate.exchange(
+        HttpEntity<UpdateAppointmentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/appointments/" + aptNum,
                 HttpMethod.PUT,
                 entity,
-                AppointmentResponse.class);
-        return response.getBody();
+                AppointmentResponse.class).getBody();
     }
 
     // --- PUT /appointments/{aptNum}/Break ---
@@ -426,8 +471,12 @@ public class OpenDentalClient {
     }
 
     public void breakAppointment(Long aptNum, BreakAppointmentRequest request, String clinicBaseUrl) {
+        breakAppointment(aptNum, request, clinicBaseUrl, null);
+    }
+
+    public void breakAppointment(Long aptNum, BreakAppointmentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<BreakAppointmentRequest> entity = new HttpEntity<>(request);
+        HttpEntity<BreakAppointmentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         restTemplate.exchange(
                 url + "/appointments/" + aptNum + "/Break",
                 HttpMethod.PUT,
@@ -441,8 +490,12 @@ public class OpenDentalClient {
     }
 
     public void appendNote(Long aptNum, NoteRequest request, String clinicBaseUrl) {
+        appendNote(aptNum, request, clinicBaseUrl, null);
+    }
+
+    public void appendNote(Long aptNum, NoteRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<NoteRequest> entity = new HttpEntity<>(request);
+        HttpEntity<NoteRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         restTemplate.exchange(
                 url + "/appointments/" + aptNum + "/Note",
                 HttpMethod.PUT,
@@ -456,8 +509,12 @@ public class OpenDentalClient {
     }
 
     public void confirmAppointment(Long aptNum, ConfirmAppointmentRequest request, String clinicBaseUrl) {
+        confirmAppointment(aptNum, request, clinicBaseUrl, null);
+    }
+
+    public void confirmAppointment(Long aptNum, ConfirmAppointmentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<ConfirmAppointmentRequest> entity = new HttpEntity<>(request);
+        HttpEntity<ConfirmAppointmentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         restTemplate.exchange(
                 url + "/appointments/" + aptNum + "/Confirm",
                 HttpMethod.PUT,
@@ -560,11 +617,17 @@ public class OpenDentalClient {
     }
 
     public ProcedureLogResponse createProcedureLog(CreateProcedureLogRequest request, String clinicBaseUrl) {
+        return createProcedureLog(request, clinicBaseUrl, null);
+    }
+
+    public ProcedureLogResponse createProcedureLog(CreateProcedureLogRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<CreateProcedureLogRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/procedurelogs",
-                request,
-                ProcedureLogResponse.class);
+                HttpMethod.POST,
+                entity,
+                ProcedureLogResponse.class).getBody();
     }
 
     // --- POST /procedurelogs/GroupNote ---
@@ -586,11 +649,17 @@ public class OpenDentalClient {
     }
 
     public ProcedureLogResponse createInsuranceHistory(InsuranceHistoryRequest request, String clinicBaseUrl) {
+        return createInsuranceHistory(request, clinicBaseUrl, null);
+    }
+
+    public ProcedureLogResponse createInsuranceHistory(InsuranceHistoryRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<InsuranceHistoryRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/procedurelogs/InsuranceHistory",
-                request,
-                ProcedureLogResponse.class);
+                HttpMethod.POST,
+                entity,
+                ProcedureLogResponse.class).getBody();
     }
 
     // --- PUT /procedurelogs/{procNum} ---
@@ -599,14 +668,17 @@ public class OpenDentalClient {
     }
 
     public ProcedureLogResponse updateProcedureLog(Long procNum, UpdateProcedureLogRequest request, String clinicBaseUrl) {
+        return updateProcedureLog(procNum, request, clinicBaseUrl, null);
+    }
+
+    public ProcedureLogResponse updateProcedureLog(Long procNum, UpdateProcedureLogRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<UpdateProcedureLogRequest> entity = new HttpEntity<>(request);
-        ResponseEntity<ProcedureLogResponse> response = restTemplate.exchange(
+        HttpEntity<UpdateProcedureLogRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/procedurelogs/" + procNum,
                 HttpMethod.PUT,
                 entity,
-                ProcedureLogResponse.class);
-        return response.getBody();
+                ProcedureLogResponse.class).getBody();
     }
 
     // --- PUT /procedurelogs/{procNum}/GroupNote ---
@@ -631,8 +703,17 @@ public class OpenDentalClient {
     }
 
     public void deleteProcedureLog(Long procNum, String clinicBaseUrl) {
+        deleteProcedureLog(procNum, clinicBaseUrl, null);
+    }
+
+    public void deleteProcedureLog(Long procNum, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        restTemplate.delete(url + "/procedurelogs/" + procNum);
+        HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
+        restTemplate.exchange(
+                url + "/procedurelogs/" + procNum,
+                HttpMethod.DELETE,
+                entity,
+                Void.class);
     }
 
     // --- DELETE /procedurelogs/{procNum}/GroupNote ---
@@ -805,11 +886,17 @@ public class OpenDentalClient {
     }
 
     public DocumentResponse uploadDocument(UploadDocumentRequest request, String clinicBaseUrl) {
+        return uploadDocument(request, clinicBaseUrl, null);
+    }
+
+    public DocumentResponse uploadDocument(UploadDocumentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<UploadDocumentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/documents/Upload",
-                request,
-                DocumentResponse.class);
+                HttpMethod.POST,
+                entity,
+                DocumentResponse.class).getBody();
     }
 
     // --- POST /documents/SetByUrl ---
@@ -818,11 +905,17 @@ public class OpenDentalClient {
     }
 
     public DocumentResponse setByUrl(SetByUrlRequest request, String clinicBaseUrl) {
+        return setByUrl(request, clinicBaseUrl, null);
+    }
+
+    public DocumentResponse setByUrl(SetByUrlRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        return restTemplate.postForObject(
+        HttpEntity<SetByUrlRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/documents/SetByUrl",
-                request,
-                DocumentResponse.class);
+                HttpMethod.POST,
+                entity,
+                DocumentResponse.class).getBody();
     }
 
     // --- POST /documents/UploadSftp ---
@@ -892,14 +985,17 @@ public class OpenDentalClient {
     }
 
     public DocumentResponse updateDocument(Long docNum, UpdateDocumentRequest request, String clinicBaseUrl) {
+        return updateDocument(docNum, request, clinicBaseUrl, null);
+    }
+
+    public DocumentResponse updateDocument(Long docNum, UpdateDocumentRequest request, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        HttpEntity<UpdateDocumentRequest> entity = new HttpEntity<>(request);
-        ResponseEntity<DocumentResponse> response = restTemplate.exchange(
+        HttpEntity<UpdateDocumentRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
+        return restTemplate.exchange(
                 url + "/documents/" + docNum,
                 HttpMethod.PUT,
                 entity,
-                DocumentResponse.class);
-        return response.getBody();
+                DocumentResponse.class).getBody();
     }
 
     // --- DELETE /documents/{docNum} ---
@@ -908,8 +1004,17 @@ public class OpenDentalClient {
     }
 
     public void deleteDocument(Long docNum, String clinicBaseUrl) {
+        deleteDocument(docNum, clinicBaseUrl, null);
+    }
+
+    public void deleteDocument(Long docNum, String clinicBaseUrl, String apiKey) {
         String url = resolveBaseUrl(clinicBaseUrl);
-        restTemplate.delete(url + "/documents/" + docNum);
+        HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
+        restTemplate.exchange(
+                url + "/documents/" + docNum,
+                HttpMethod.DELETE,
+                entity,
+                Void.class);
     }
     // --- GET /patfields ---
     public List<PatFieldResponse> getPatFields(Map<String, String> params) {

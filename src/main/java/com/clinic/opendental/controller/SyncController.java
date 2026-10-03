@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,9 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.clinic.opendental.model.Appointment;
 import com.clinic.opendental.model.Document;
+import com.clinic.opendental.model.OdSyncTask;
 import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.ProcedureLog;
 import com.clinic.opendental.service.SyncService;
+import com.clinic.opendental.service.Impl.FullSyncService;
+import com.clinic.opendental.service.Impl.OdSyncService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -26,6 +30,33 @@ import lombok.RequiredArgsConstructor;
 public class SyncController {
 
     private final SyncService syncService;
+    private final OdSyncService odSyncService;
+    private final FullSyncService fullSyncService;
+
+    // ========================================================================
+    // Force Sync - everything in Open Dental, for every active clinic
+    // ========================================================================
+
+    /**
+     * POST /api/sync/force
+     * Starts a full copy of Open Dental into Supabase in the background: patients,
+     * appointments, documents, procedure logs and the other typed tables, plus every
+     * other Open Dental resource (into od_resource_records). Returns 202 with the run's
+     * status; if a sync is already running, returns that one.
+     */
+    @PostMapping("/force")
+    public ResponseEntity<Map<String, Object>> forceSync() {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(fullSyncService.startFullSync("force"));
+    }
+
+    /**
+     * GET /api/sync/force/status
+     * Progress of the running sync, or the result of the last one.
+     */
+    @GetMapping("/force/status")
+    public ResponseEntity<Map<String, Object>> forceSyncStatus() {
+        return ResponseEntity.ok(fullSyncService.status());
+    }
 
     // ========================================================================
     // Batch Sync - All Clinics
@@ -517,5 +548,38 @@ public class SyncController {
                     "error", e.getMessage()
             ));
         }
+    }
+
+    // ========================================================================
+    // Open Dental push queue (changes saved here first, then sent to Open Dental)
+    // ========================================================================
+
+    /**
+     * GET /api/sync/queue?status=PENDING,FAILED&limit=100
+     * Changes still waiting for Open Dental (default: PENDING, IN_PROGRESS, FAILED).
+     */
+    @GetMapping("/queue")
+    public ResponseEntity<List<OdSyncTask>> getQueue(
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(defaultValue = "100") int limit) {
+
+        List<String> statuses = status == null || status.isEmpty()
+                ? List.of(OdSyncTask.PENDING, OdSyncTask.IN_PROGRESS, OdSyncTask.FAILED)
+                : status.stream().map(String::toUpperCase).toList();
+        return ResponseEntity.ok(odSyncService.list(statuses, Math.max(1, Math.min(limit, 500))));
+    }
+
+    /**
+     * POST /api/sync/queue/{id}/retry
+     * Sends a FAILED change to Open Dental again (e.g. after fixing the API key).
+     */
+    @PostMapping("/queue/{id}/retry")
+    public ResponseEntity<Map<String, Object>> retryQueued(@PathVariable Long id) {
+        OdSyncTask task = odSyncService.retry(id);
+        return ResponseEntity.ok(Map.of(
+                "id", task.getId(),
+                "status", task.getStatus(),
+                "lastError", task.getLastError() != null ? task.getLastError() : ""
+        ));
     }
 }

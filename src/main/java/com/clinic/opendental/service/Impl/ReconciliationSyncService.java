@@ -8,8 +8,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,7 @@ import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.PatientId;
 import com.clinic.opendental.model.ProcedureLog;
 import com.clinic.opendental.model.ProcedureLogId;
+import com.clinic.opendental.repository.OdSyncTaskRepository;
 import com.clinic.opendental.model.ref.Operatory;
 import com.clinic.opendental.model.ref.OperatoryId;
 import com.clinic.opendental.model.ref.PatField;
@@ -90,6 +93,10 @@ public class ReconciliationSyncService {
     private final ProviderRepository providerRepository;
     private final OperatoryRepository operatoryRepository;
     private final OpenDentalClient client;
+
+    /** Optional so unit tests that build this service by hand need not supply it. */
+    @Autowired(required = false)
+    private OdSyncTaskRepository odSyncTaskRepository;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -284,7 +291,7 @@ public class ReconciliationSyncService {
     private Stats reconcilePatients(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<PatientResponse> dtos = client.getPatients(Map.of(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<PatientResponse> dtos = fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, PatientResponse> byId = new HashMap<>();
             for (PatientResponse dto : dtos) {
                 if (byId.put(dto.getPatNum(), dto) != null) {
@@ -294,6 +301,7 @@ public class ReconciliationSyncService {
                 }
             }
             List<Patient> existing = patientRepository.findByIdClinicId(clinic.getId());
+            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PATIENT);
             Map<Long, Patient> existingById = new HashMap<>();
             for (Patient p : existing) {
                 if (existingById.put(p.getId().getPatNum(), p) != null) {
@@ -314,6 +322,11 @@ public class ReconciliationSyncService {
                         stats.failed++;
                         log.warn("Skipping patient with null PatNum returned by Open Dental for clinic {} "
                                 + "(cannot insert/update without a primary key)", clinic.getClinicCode());
+                        continue;
+                    }
+                    if (queued.contains(patNum)) {
+                        // A local change is still waiting to reach Open Dental; don't overwrite it.
+                        stats.unchanged++;
                         continue;
                     }
                     Patient stored = existingById.get(patNum);
@@ -357,7 +370,7 @@ public class ReconciliationSyncService {
     private Stats reconcilePatFields(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<PatFieldResponse> dtos = client.getPatFields(new HashMap<>(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<PatFieldResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getPatFields(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, PatFieldResponse> byId = new HashMap<>();
             for (PatFieldResponse dto : dtos) {
                 if (byId.put(dto.getPatFieldNum(), dto) != null) {
@@ -430,7 +443,7 @@ public class ReconciliationSyncService {
     private Stats reconcileAppointments(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<AppointmentResponse> dtos = client.getAppointments(Map.of(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<AppointmentResponse> dtos = fetchAllPages(Map.of(), params -> client.getAppointments(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, AppointmentResponse> byId = new HashMap<>();
             for (AppointmentResponse dto : dtos) {
                 if (byId.put(dto.getAptNum(), dto) != null) {
@@ -440,6 +453,7 @@ public class ReconciliationSyncService {
                 }
             }
             List<Appointment> existing = appointmentRepository.findByIdClinicId(clinic.getId());
+            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.APPOINTMENT);
             Map<Long, Appointment> existingById = new HashMap<>();
             for (Appointment a : existing) {
                 if (existingById.put(a.getId().getAptNum(), a) != null) {
@@ -456,6 +470,11 @@ public class ReconciliationSyncService {
                         stats.failed++;
                         log.warn("Skipping appointment with null AptNum returned by Open Dental for clinic {} "
                                 + "(cannot insert/update without a primary key)", clinic.getClinicCode());
+                        continue;
+                    }
+                    if (queued.contains(aptNum)) {
+                        // A local change is still waiting to reach Open Dental; don't overwrite it.
+                        stats.unchanged++;
                         continue;
                     }
                     Appointment stored = existingById.get(aptNum);
@@ -504,7 +523,7 @@ public class ReconciliationSyncService {
             // each patient in the clinic and merge them into a single deduped set.
             List<DocumentResponse> dtos = new ArrayList<>();
             Map<Long, DocumentResponse> byId = new HashMap<>();
-            List<PatientResponse> patients = client.getPatients(Map.of(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<PatientResponse> patients = fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
             if (patients == null) {
                 patients = List.of();
             }
@@ -514,10 +533,9 @@ public class ReconciliationSyncService {
                     continue;
                 }
                 try {
-                    List<DocumentResponse> perPatient = client.getDocuments(
+                    List<DocumentResponse> perPatient = fetchAllPages(
                             Map.of("PatNum", String.valueOf(patNum)),
-                            clinic.getBaseUrl(),
-                            clinic.getApiKey());
+                            params -> client.getDocuments(params, clinic.getBaseUrl(), clinic.getApiKey()));
                     if (perPatient == null) {
                         continue;
                     }
@@ -537,6 +555,7 @@ public class ReconciliationSyncService {
                 }
             }
             List<Document> existing = documentRepository.findByIdClinicId(clinic.getId());
+            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.DOCUMENT);
             Map<Long, Document> existingById = new HashMap<>();
             for (Document d : existing) {
                 if (existingById.put(d.getId().getDocNum(), d) != null) {
@@ -553,6 +572,11 @@ public class ReconciliationSyncService {
                         stats.failed++;
                         log.warn("Skipping document with null DocNum returned by Open Dental for clinic {} "
                                 + "(cannot insert/update without a primary key)", clinic.getClinicCode());
+                        continue;
+                    }
+                    if (queued.contains(docNum)) {
+                        // A local change is still waiting to reach Open Dental; don't overwrite it.
+                        stats.unchanged++;
                         continue;
                     }
                     Document stored = existingById.get(docNum);
@@ -596,7 +620,7 @@ public class ReconciliationSyncService {
     private Stats reconcileProcedureLogs(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<ProcedureLogResponse> dtos = client.getProcedureLogs(Map.of(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<ProcedureLogResponse> dtos = fetchAllPages(Map.of(), params -> client.getProcedureLogs(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, ProcedureLogResponse> byId = new HashMap<>();
             for (ProcedureLogResponse dto : dtos) {
                 if (byId.put(dto.getProcNum(), dto) != null) {
@@ -606,6 +630,7 @@ public class ReconciliationSyncService {
                 }
             }
             List<ProcedureLog> existing = procedureLogRepository.findByIdClinicId(clinic.getId());
+            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PROCEDURE_LOG);
             Map<Long, ProcedureLog> existingById = new HashMap<>();
             for (ProcedureLog pl : existing) {
                 if (existingById.put(pl.getId().getProcNum(), pl) != null) {
@@ -622,6 +647,11 @@ public class ReconciliationSyncService {
                         stats.failed++;
                         log.warn("Skipping procedurelog with null ProcNum returned by Open Dental for clinic {} "
                                 + "(cannot insert/update without a primary key)", clinic.getClinicCode());
+                        continue;
+                    }
+                    if (queued.contains(procNum)) {
+                        // A local change is still waiting to reach Open Dental; don't overwrite it.
+                        stats.unchanged++;
                         continue;
                     }
                     ProcedureLog stored = existingById.get(procNum);
@@ -665,7 +695,7 @@ public class ReconciliationSyncService {
 private Stats reconcileProviders(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<ProviderResponse> dtos = client.getProviders(new HashMap<>(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<ProviderResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, ProviderResponse> byId = new HashMap<>();
             for (ProviderResponse dto : dtos) {
                 if (dto.getProvNum() == null) {
@@ -736,7 +766,7 @@ private Stats reconcileProviders(Clinic clinic) {
 private Stats reconcileOperatories(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<OperatoryResponse> dtos = client.getOperatories(new HashMap<>(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<OperatoryResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getOperatories(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, OperatoryResponse> byId = new HashMap<>();
             for (OperatoryResponse dto : dtos) {
                 if (dto.getOperatoryNum() == null) {
@@ -812,7 +842,7 @@ private Stats reconcileOperatories(Clinic clinic) {
     private Stats reconcileSchedules(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<ScheduleResponse> dtos = client.getSchedules(new HashMap<>(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<ScheduleResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getSchedules(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, ScheduleResponse> byId = new HashMap<>();
             for (ScheduleResponse dto : dtos) {
                 if (dto.getScheduleNum() == null) {
@@ -895,7 +925,7 @@ private Stats reconcileOperatories(Clinic clinic) {
     private Stats reconcileToothInitials(Clinic clinic) {
         Stats stats = new Stats();
         try {
-            List<ToothInitialResponse> dtos = client.getToothInitials(new HashMap<>(), clinic.getBaseUrl(), clinic.getApiKey());
+            List<ToothInitialResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getToothInitials(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, ToothInitialResponse> byId = new HashMap<>();
             for (ToothInitialResponse dto : dtos) {
                 if (dto.getToothInitialNum() == null) {
@@ -1039,6 +1069,38 @@ private Stats reconcileOperatories(Clinic clinic) {
     /**
      * Aggregated difference-detection statistics for a single entity type.
      */
+    /** Open Dental returns at most this many rows per list call. */
+    static final int OD_PAGE_SIZE = 100;
+    private static final int MAX_PAGES = 10_000;
+
+    /**
+     * Walks every page of an Open Dental list. The first call is made with the given
+     * parameters as-is; later calls add {@code Offset}. Stops on a short or empty page,
+     * or when an endpoint that ignores {@code Offset} returns the same page again.
+     */
+    static <T> List<T> fetchAllPages(Map<String, String> params, java.util.function.Function<Map<String, String>, List<T>> fetch) {
+        List<T> all = new ArrayList<>();
+        List<T> previous = null;
+        int offset = 0;
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Map<String, String> pageParams = new HashMap<>(params);
+            if (offset > 0) {
+                pageParams.put("Offset", String.valueOf(offset));
+            }
+            List<T> rows = fetch.apply(pageParams);
+            if (rows == null || rows.isEmpty() || rows.equals(previous)) {
+                break;
+            }
+            all.addAll(rows);
+            if (rows.size() < OD_PAGE_SIZE) {
+                break;
+            }
+            offset += rows.size();
+            previous = rows;
+        }
+        return all;
+    }
+
     private static final class Stats {
         int inserted;
         int updated;
@@ -1093,6 +1155,14 @@ private Stats reconcileOperatories(Clinic clinic) {
         procedureLogRepository.save(procedureLog);
     }
 
+    /** Records with changes still queued for Open Dental (see OdSyncService). */
+    private Set<Long> queuedLocalIds(UUID clinicId, String entityType) {
+        if (odSyncTaskRepository == null) {
+            return Set.of();
+        }
+        return odSyncTaskRepository.findLocalIds(clinicId, entityType, OdSyncTaskRepository.OPEN);
+    }
+
     // --- Open Dental Clinic mapping ---
 
     private OdClinic toOdClinicEntity(ClinicResponse dto, UUID clinicId) {
@@ -1105,7 +1175,7 @@ private Stats reconcileOperatories(Clinic clinic) {
 
     // --- Patient mapping ---
 
-    private Patient toPatientEntity(PatientResponse dto, UUID clinicId) {
+    Patient toPatientEntity(PatientResponse dto, UUID clinicId) {
         Patient.PatientBuilder builder = Patient.builder()
                 .id(new PatientId(clinicId, dto.getPatNum()))
                 .lName(dto.getLName())
@@ -1176,7 +1246,7 @@ private Stats reconcileOperatories(Clinic clinic) {
 
     // --- Appointment mapping ---
 
-    private Appointment toAppointmentEntity(AppointmentResponse dto, UUID clinicId) {
+    Appointment toAppointmentEntity(AppointmentResponse dto, UUID clinicId) {
         Appointment.AppointmentBuilder builder = Appointment.builder()
                 .id(new AppointmentId(clinicId, dto.getAptNum()))
                 .patNum(dto.getPatNum())
@@ -1234,9 +1304,22 @@ private Stats reconcileOperatories(Clinic clinic) {
 
     // --- Document mapping ---
 
-    private Document toDocumentEntity(DocumentResponse dto, UUID clinicId) {
+    /** Open Dental returns PatNum as text on documents. */
+    private static Long parsePatNum(String patNum) {
+        if (patNum == null || patNum.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(patNum.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    Document toDocumentEntity(DocumentResponse dto, UUID clinicId) {
         Document.DocumentBuilder builder = Document.builder()
                 .id(new DocumentId(clinicId, dto.getDocNum()))
+                .patNum(parsePatNum(dto.getPatNum()))
                 .description(dto.getDescription())
                 .note(dto.getNote())
                 .imgType(dto.getImgType())
@@ -1284,7 +1367,7 @@ private Stats reconcileOperatories(Clinic clinic) {
 
     // --- ProcedureLog mapping ---
 
-    private ProcedureLog toProcedureLogEntity(ProcedureLogResponse dto, UUID clinicId) {
+    ProcedureLog toProcedureLogEntity(ProcedureLogResponse dto, UUID clinicId) {
         ProcedureLog.ProcedureLogBuilder builder = ProcedureLog.builder()
                 .id(new ProcedureLogId(clinicId, dto.getProcNum()))
                 .patNum(dto.getPatNum())

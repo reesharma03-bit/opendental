@@ -4,7 +4,7 @@ import {
   Lock, Plus, RefreshCw, Search, ShieldAlert, Trash2, X, Zap,
 } from 'lucide-react';
 import { request } from './lib/backend';
-import { listBackendPatients, type BackendPatient } from './lib/backendPatients';
+import { listSupabasePatients, type BackendPatient } from './lib/backendPatients';
 import {
   buildBody, buildUpdateBody, displayValue, formValue, getField, missingRequired, qs, toRows, updatePath,
   type ActionMeta, type ColumnMeta, type FieldMeta, type ParamMeta, type ResourceMeta,
@@ -30,7 +30,7 @@ function usePatients() {
   const [error, setError] = useState('');
   const load = useCallback(() => {
     setLoading(true);
-    listBackendPatients('')
+    listSupabasePatients('')
       .then((rows) => { setPatients(rows.filter((p) => p.patNum > 0)); setError(''); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -279,7 +279,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
       const first = toRows(fresh)[0];
       setDetail({ row: first ?? row, loading: false, error: '' });
     } catch (e) {
-      setDetail({ row, loading: false, error: `Could not refresh this record from Open Dental: ${(e as Error).message}` });
+      setDetail({ row, loading: false, error: `Could not refresh this record: ${(e as Error).message}` });
     }
   };
 
@@ -319,7 +319,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
       setFormError('Use either Guarantor or Super family head, not both.'); return;
     }
     if (form.kind === 'edit' && form.row) {
-      if (Object.keys(body).length === 0) { setFormError('Nothing has changed, so nothing was sent to Open Dental.'); return; }
+      if (Object.keys(body).length === 0) { setFormError('Nothing has changed.'); return; }
     }
     setSaving(true); setFormError('');
     try {
@@ -327,10 +327,10 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
       let message: string;
       if (form.kind === 'create') {
         result = await request<unknown>(r.basePath, { method: 'POST', body: JSON.stringify(body) });
-        message = `${r.title}: record created in Open Dental.`;
+        message = `${r.title}: record saved. It is sent to Open Dental automatically.`;
       } else if (form.kind === 'edit') {
         result = await request<unknown>(updatePath(r, form.row!), { method: 'PUT', body: JSON.stringify(body) });
-        message = `${r.title}: record ${String(getField(form.row!, r.pk) ?? '')} updated in Open Dental (${Object.keys(body).join(', ')}).`;
+        message = `${r.title}: record ${String(getField(form.row!, r.pk) ?? '')} saved (${Object.keys(body).join(', ')}). It is sent to Open Dental automatically.`;
       } else {
         result = await request<unknown>(form.action!.path, { method: 'PUT', body: JSON.stringify(body) });
         message = `${form.action!.label}: Open Dental accepted the change.`;
@@ -355,7 +355,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
     setDeleting(true); setDeleteError('');
     try {
       await request<unknown>(`${r.basePath}/${encodeURIComponent(String(getField(deleteRow, r.pk) ?? ''))}`, { method: 'DELETE' });
-      setNotice(`${r.title}: record ${String(getField(deleteRow, r.pk))} deleted from Open Dental.`);
+      setNotice(`${r.title}: record ${String(getField(deleteRow, r.pk))} deleted. The delete is sent to Open Dental automatically.`);
       setDeleteRow(null); setDeleteText('');
       await run(lastQuery.current.offset);
     } catch (e) {
@@ -382,7 +382,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
       <div role="note" data-testid="notice-resource-live" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-[#fff8e9] px-4 py-3.5 text-amber-950">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">{nothingWritable || (!r.create && !r.update && !r.del) ? <Lock size={16} /> : <ShieldAlert size={16} />}</span>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold">{nothingWritable ? 'Live data - read only' : 'Live practice data - changes write to Open Dental'}</p>
+          <p className="text-[12px] font-bold">{nothingWritable ? 'Our database - read only' : 'Our database - changes are saved here first, then sent to Open Dental'}</p>
           <p className="mt-0.5 text-[11px] leading-5 text-amber-900/80">{r.warning ?? r.readOnlyNote ?? 'Confirm the patient before making changes.'}{r.readOnlyNote && r.warning ? ` ${r.readOnlyNote}` : ''}</p>
         </div>
       </div>
@@ -426,7 +426,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
         {error && (
           <div role="alert" data-testid="resource-error" className="m-5 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[11px] font-medium text-rose-700">
             <CircleAlert size={16} className="mt-0.5 shrink-0" />
-            <div className="flex-1"><p className="font-bold">Open Dental request failed</p><p className="mt-0.5">{error}</p>
+            <div className="flex-1"><p className="font-bold">Could not load records</p><p className="mt-0.5">{error}</p>
               <p className="mt-1 text-rose-600/80">This is an error, not an empty result. No records were assumed.</p></div>
             <button type="button" onClick={() => void run(lastQuery.current.offset)} className="rounded-lg border border-rose-300 px-3 py-1.5 font-bold hover:bg-rose-100">Retry</button>
           </div>
@@ -445,8 +445,8 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
         ) : !error && rows.length === 0 ? (
           <div className="px-5 py-14 text-center" data-testid="resource-empty">
             <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Inbox size={19} /></span>
-            <p className="mt-3 text-[12px] font-semibold text-slate-700">Open Dental returned no records</p>
-            <p className="mt-1 text-[10px] text-slate-400">{offset > 0 ? 'This page is past the last record. Go back a page.' : 'Nothing matches the current selection.'}</p>
+            <p className="mt-3 text-[12px] font-semibold text-slate-700">No records in our database yet</p>
+            <p className="mt-1 text-[10px] text-slate-400">{offset > 0 ? 'This page is past the last record. Go back a page.' : 'Nothing matches the current selection. Use Force Sync to copy the latest data from Open Dental.'}</p>
           </div>
         ) : !error && (
           <div className="overflow-x-auto">
@@ -522,7 +522,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
           <section role="dialog" aria-modal="true" aria-labelledby="resource-form-title" data-testid="dialog-resource-form" className="flex max-h-[94dvh] w-full max-w-[720px] flex-col overflow-hidden rounded-t-[22px] bg-white shadow-2xl sm:rounded-[22px]">
             <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[1px] text-amber-600">{form.kind === 'edit' ? `${r.pk} ${String(getField(form.row!, r.pk) ?? '')}` : 'Open Dental'}</p>
+                <p className="text-[10px] font-bold uppercase tracking-[1px] text-amber-600">{form.kind === 'edit' ? `${r.pk} ${String(getField(form.row!, r.pk) ?? '')}` : 'New record'}</p>
                 <h2 id="resource-form-title" className="mt-1 font-[Manrope] text-[18px] font-extrabold text-slate-900">{form.kind === 'create' ? `Add ${r.title.toLowerCase()}` : form.kind === 'edit' ? `Edit ${r.rowLabel(form.row!)}` : form.action!.label}</h2>
                 {form.kind === 'action' && <p className="mt-1 text-[11px] text-slate-500">{form.action!.description}</p>}
               </div>
@@ -537,7 +537,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
               </div>
               <footer className="border-t border-slate-100 bg-[#fbfcfe] px-5 py-4 sm:px-6">
                 <p className="mb-3 text-[10px] text-slate-500" data-testid="text-change-preview">
-                  {Object.keys(preview).length === 0 ? 'No fields will be sent yet.' : <>Will send to Open Dental: <span className="font-mono text-slate-700">{Object.entries(preview).map(([k, v]) => `${k}=${typeof v === 'string' && v.length > 24 ? `${v.slice(0, 24)}...` : String(v)}`).join(', ')}</span></>}
+                  {Object.keys(preview).length === 0 ? 'No fields will be sent yet.' : <>Will save: <span className="font-mono text-slate-700">{Object.entries(preview).map(([k, v]) => `${k}=${typeof v === 'string' && v.length > 24 ? `${v.slice(0, 24)}...` : String(v)}`).join(', ')}</span></>}
                 </p>
                 {formError && <p role="alert" data-testid="resource-form-error" className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-700">{formError}</p>}
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -556,7 +556,7 @@ export default function ResourceScreen({ resource }: { resource: ResourceMeta })
           <section role="alertdialog" aria-modal="true" aria-labelledby="delete-title" className="w-full max-w-[440px] rounded-2xl bg-white p-6 shadow-2xl" data-testid="dialog-delete-confirm">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} /></span>
             <h2 id="delete-title" className="mt-3 font-[Manrope] text-[17px] font-extrabold text-slate-900">Permanently delete {r.rowLabel(deleteRow)}?</h2>
-            <p className="mt-2 text-[11px] leading-5 text-slate-600">{r.pk} {String(getField(deleteRow, r.pk) ?? '')} will be removed from Open Dental. This cannot be undone from SmileOS.</p>
+            <p className="mt-2 text-[11px] leading-5 text-slate-600">{r.pk} {String(getField(deleteRow, r.pk) ?? '')} will be deleted from our database and then from Open Dental. This cannot be undone from SmileOS.</p>
             {r.warning && <p className="mt-2 text-[10px] leading-5 text-amber-800">{r.warning}</p>}
             <label className="mt-4 block text-[11px] font-bold text-slate-700" htmlFor="delete-confirm-input">Type DELETE to confirm
               <input id="delete-confirm-input" value={deleteText} onChange={(e) => setDeleteText(e.target.value)} autoFocus autoComplete="off" data-testid="input-delete-confirm" className={inputCls} /></label>

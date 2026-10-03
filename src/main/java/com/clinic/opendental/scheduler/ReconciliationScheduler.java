@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.clinic.opendental.service.Impl.FullSyncService;
 import com.clinic.opendental.service.Impl.ReconciliationSyncService;
 
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ReconciliationScheduler {
 
     private final ReconciliationSyncService reconciliationSyncService;
+    private final FullSyncService fullSyncService;
 
     @Value("${reconciliation.enabled:true}")
     private boolean enabled;
@@ -51,6 +53,10 @@ public class ReconciliationScheduler {
     public void reconcileAll() {
         if (!enabled) {
             log.info("Scheduled reconciliation is disabled. Skipping.");
+            return;
+        }
+        if (fullSyncService.isRunning()) {
+            log.info("Full Open Dental sync in progress; skipping this reconciliation.");
             return;
         }
 

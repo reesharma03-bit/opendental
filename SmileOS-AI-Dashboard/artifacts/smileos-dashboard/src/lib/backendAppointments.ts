@@ -1,4 +1,4 @@
-// Appointment endpoints: GET /api/appointments (+?PatNum=&AptStatus=), POST /api/appointments.
+// Appointment endpoints: GET /api/appointments/database (+?PatNum=&AptStatus=) reads our database; POST /api/appointments saves here first, then in Open Dental.
 import { pick, pickNum, request, type Raw } from './backend';
 
 export interface BackendAppointment {
@@ -15,6 +15,7 @@ export interface BackendAppointment {
   procDescript: string;
   priority: string;
   isNewPatient: string;
+  isHygiene: string;
 }
 
 export function mapBackendAppointment(raw: Raw): BackendAppointment {
@@ -32,12 +33,13 @@ export function mapBackendAppointment(raw: Raw): BackendAppointment {
     procDescript: pick(raw, 'proc_descript', 'procDescript', 'ProcDescript'),
     priority: pick(raw, 'priority', 'Priority'),
     isNewPatient: pick(raw, 'is_new_patient', 'isNewPatient', 'IsNewPatient'),
+    isHygiene: pick(raw, 'is_hygiene', 'isHygiene', 'IsHygiene'),
   };
 }
 
 export async function listBackendAppointments(params?: Record<string, string>): Promise<BackendAppointment[]> {
   const query = params ? `?${new URLSearchParams(params)}` : '';
-  const data = await request<Raw[]>(`/api/appointments${query}`);
+  const data = await request<Raw[]>(`/api/appointments/database${query}`);
   return (Array.isArray(data) ? data : []).map(mapBackendAppointment);
 }
 
@@ -71,4 +73,25 @@ export async function createBackendAppointment(body: CreateAppointmentBody): Pro
   set(body.ClinicNum, 'clinic_num', 'ClinicNum');
   set(body.Confirmed, 'confirmed', 'Confirmed');
   return mapBackendAppointment(await request<Raw>('/api/appointments', { method: 'POST', body: JSON.stringify(payload) }));
+}
+
+/** Fields an appointment edit may change (Open Dental's names). */
+export interface UpdateAppointmentBody {
+  AptStatus?: string;
+  Pattern?: string;
+  Note?: string;
+  Op?: number;
+  ProvNum?: number;
+  AptDateTime?: string;
+  IsHygiene?: string;
+  IsNewPatient?: string;
+  Priority?: string;
+}
+
+/** Saved in our database first, then sent to Open Dental by the backend. */
+export async function updateBackendAppointment(aptNum: number, body: UpdateAppointmentBody): Promise<BackendAppointment> {
+  return mapBackendAppointment(await request<Raw>(`/api/database/appointments/${aptNum}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }));
 }

@@ -72,6 +72,23 @@ reconciliation:
   enabled: ${RECONCILIATION_ENABLED:true}
   cron: ${RECONCILIATION_CRON:0 * * * * *}
 
+# Copies Open Dental resources without their own table into od_resource_records.
+# cron: resources Open Dental lists in one paged call.
+# full-cron: everything, including resources fetched per patient / per parent
+#            (same as the Force Sync button).
+resource-sync:
+  enabled: ${RESOURCE_SYNC_ENABLED:true}
+  cron: ${RESOURCE_SYNC_CRON:0 */15 * * * *}
+  full-cron: ${RESOURCE_SYNC_FULL_CRON:0 0 2 * * *}
+  request-delay-ms: ${RESOURCE_SYNC_REQUEST_DELAY_MS:0}
+
+# Changes are saved in Supabase first and then pushed to Open Dental. When the
+# immediate push fails they stay in od_sync_queue and are retried with backoff.
+od-sync:
+  enabled: ${OD_SYNC_ENABLED:true}
+  interval-ms: ${OD_SYNC_INTERVAL_MS:30000}
+  max-attempts: ${OD_SYNC_MAX_ATTEMPTS:50}
+
 server:
   port: ${PORT:8080}
   compression:

@@ -8,7 +8,7 @@ import {
   updateBackendAllergy, type AllergyDraft, type BackendAllergy,
 } from './lib/backendAllergies';
 import { backendAvailable } from './lib/backend';
-import { listBackendPatients, type BackendPatient } from './lib/backendPatients';
+import { listSupabasePatients, type BackendPatient } from './lib/backendPatients';
 
 const emptyDraft = (): AllergyDraft => ({
   description: '',
@@ -42,7 +42,7 @@ export default function AllergiesScreen() {
   useEffect(() => {
     let live = true;
     setLoadingPatients(true);
-    listBackendPatients('')
+    listSupabasePatients('')
       .then((rows) => {
         if (!live) return;
         setPatients(rows.filter((patient) => patient.patNum > 0));

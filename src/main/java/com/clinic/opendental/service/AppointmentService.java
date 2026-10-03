@@ -13,6 +13,9 @@ public interface AppointmentService {
     // GET multiple
     List<AppointmentResponse> getAppointments(Map<String, String> params);
 
+    // GET multiple from our database only (PatNum, AptStatus, dateStart, dateEnd)
+    List<AppointmentResponse> getAppointmentsFromDatabase(Map<String, String> params);
+
     // GET ASAP
     List<AppointmentResponse> getASAPAppointments(Map<String, String> params);
 

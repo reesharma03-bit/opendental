@@ -32,6 +32,7 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
     private final OpenDentalClient client;
     private final ProcedureLogRepository procedureLogRepository;
     private final ClinicRepository clinicRepository;
+    private final OdSyncService odSync;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -70,6 +71,16 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<ProcedureLogResponse> getProcedureLogsFromDatabase(Long patNum) {
+        return procedureLogRepository.findByIdClinicId(resolveClinicId()).stream()
+                .filter(p -> patNum == null || patNum.equals(p.getPatNum()))
+                .sorted(java.util.Comparator.comparing(p -> p.getId().getProcNum()))
+                .map(this::toProcedureLogResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<InsuranceHistoryResponse> getInsuranceHistory(Long patNum, Long insSubNum) {
         return client.getInsuranceHistory(patNum, insSubNum);
     }
@@ -80,18 +91,29 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
         return client.getGroupNotes(patNum);
     }
 
+    // Create, insurance history, update and delete go to our database first and are then
+    // pushed to Open Dental (right away when it is reachable, otherwise from the retry
+    // queue). A new procedure has a temporary negative ProcNum until Open Dental assigns one.
+
     @Override
-    @Transactional
     public ProcedureLogResponse createProcedureLog(CreateProcedureLogRequest request) {
-        try {
-            ProcedureLogResponse response = client.createProcedureLog(request);
-            saveProcedureLogToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create procedurelog via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create procedurelog: " + e.getMessage());
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        Long aptNum = request.getAptNum() != null && request.getAptNum() != 0L ? request.getAptNum() : null;
+        if (aptNum != null) {
+            odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, aptNum);
         }
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.PROCEDURE_LOG, OdSyncService.CREATE, request,
+                procNum -> {
+                    ProcedureLog procedureLog = ProcedureLog.builder()
+                            .id(new ProcedureLogId(clinicId, procNum))
+                            .patNum(request.getPatNum())
+                            .dxName(request.getDxName())
+                            .build();
+                    applyRequest(procedureLog, OdSyncService.convert(request, UpdateProcedureLogRequest.class));
+                    procedureLogRepository.save(procedureLog);
+                });
+        return loadSavedProcedureLog(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
@@ -107,31 +129,34 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
     }
 
     @Override
-    @Transactional
     public ProcedureLogResponse createInsuranceHistory(InsuranceHistoryRequest request) {
-        try {
-            ProcedureLogResponse response = client.createInsuranceHistory(request);
-            saveProcedureLogToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to create insurance history: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create insurance history: " + e.getMessage());
-        }
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PATIENT, request.getPatNum());
+        long taskId = odSync.recordCreate(clinicId, OdSyncService.PROCEDURE_LOG, OdSyncService.INSURANCE_HISTORY,
+                request, procNum -> procedureLogRepository.save(ProcedureLog.builder()
+                        .id(new ProcedureLogId(clinicId, procNum))
+                        .patNum(request.getPatNum())
+                        .procDate(LocalValues.date(request.getProcDate()))
+                        .procStatus("EO")
+                        .build()));
+        return loadSavedProcedureLog(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
-    @Transactional
     public ProcedureLogResponse updateProcedureLog(Long procNum, UpdateProcedureLogRequest request) {
-        try {
-            ProcedureLogResponse response = client.updateProcedureLog(procNum, request);
-            saveProcedureLogToDb(response);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to update procedurelog via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to update procedurelog: " + e.getMessage());
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PROCEDURE_LOG, procNum);
+        if (request.getAptNum() != null && request.getAptNum() != 0L) {
+            odSync.ensureStored(clinicId, OdSyncService.APPOINTMENT, request.getAptNum());
         }
+        long taskId = odSync.recordChange(clinicId, OdSyncService.PROCEDURE_LOG, OdSyncService.UPDATE, procNum,
+                request, () -> {
+                    ProcedureLog procedureLog = procedureLogRepository.findById(new ProcedureLogId(clinicId, procNum))
+                            .orElseThrow(() -> procedureLogNotFound(procNum));
+                    applyRequest(procedureLog, request);
+                    procedureLogRepository.save(procedureLog);
+                });
+        return loadSavedProcedureLog(clinicId, odSync.pushNow(taskId));
     }
 
     @Override
@@ -147,17 +172,60 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
     }
 
     @Override
-    @Transactional
     public void deleteProcedureLog(Long procNum) {
-        try {
-            client.deleteProcedureLog(procNum);
-            UUID clinicId = resolveClinicId();
-            procedureLogRepository.deleteById(new ProcedureLogId(clinicId, procNum));
-        } catch (Exception e) {
-            log.error("Failed to delete procedurelog via OpenDental API: {}", e.getMessage());
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to delete procedurelog: " + e.getMessage());
+        UUID clinicId = resolveClinicId();
+        odSync.ensureStored(clinicId, OdSyncService.PROCEDURE_LOG, procNum);
+        Long taskId = odSync.recordDelete(clinicId, OdSyncService.PROCEDURE_LOG, procNum,
+                () -> procedureLogRepository.deleteById(new ProcedureLogId(clinicId, procNum)));
+        if (taskId != null) {
+            odSync.pushNow(taskId);
         }
+    }
+
+    private static void applyRequest(ProcedureLog p, UpdateProcedureLogRequest r) {
+        if (r.getAptNum() != null) p.setAptNum(r.getAptNum() != 0L ? r.getAptNum() : null);
+        if (r.getProcDate() != null) p.setProcDate(LocalValues.date(r.getProcDate()));
+        if (r.getProcFee() != null) p.setProcFee(LocalValues.decimal(r.getProcFee()));
+        if (r.getPriority() != null) p.setPriority(r.getPriority());
+        if (r.getProcStatus() != null) p.setProcStatus(r.getProcStatus());
+        if (r.getProvNum() != null) p.setProvNum(r.getProvNum());
+        if (r.getDx() != null) p.setDx(r.getDx());
+        if (r.getPlannedAptNum() != null) p.setPlannedAptNum(r.getPlannedAptNum());
+        if (r.getPlaceService() != null) p.setPlaceService(r.getPlaceService());
+        if (r.getProsthesis() != null) p.setProsthesis(r.getProsthesis());
+        if (r.getDateOriginalProsth() != null) p.setDateOriginalProsth(LocalValues.date(r.getDateOriginalProsth()));
+        if (r.getClaimNote() != null) p.setClaimNote(r.getClaimNote());
+        if (r.getClinicNum() != null) p.setClinicNum(r.getClinicNum());
+        if (r.getDiagnosticCode() != null) p.setDiagnosticCode(r.getDiagnosticCode());
+        if (r.getIsPrincDiag() != null) p.setIsPrincDiag(r.getIsPrincDiag());
+        if (r.getCodeNum() != null) p.setCodeNum(r.getCodeNum());
+        if (r.getProcCode() != null) p.setProcCode(r.getProcCode());
+        if (r.getDateTP() != null) p.setDateTP(LocalValues.date(r.getDateTP()));
+        if (r.getSiteNum() != null) p.setSiteNum(r.getSiteNum());
+        if (r.getProcTime() != null) p.setProcTime(r.getProcTime());
+        if (r.getProcTimeEnd() != null) p.setProcTimeEnd(r.getProcTimeEnd());
+        if (r.getPrognosis() != null) p.setPrognosis(r.getPrognosis());
+        if (r.getToothNum() != null) p.setToothNum(r.getToothNum());
+        if (r.getSurf() != null) p.setSurf(r.getSurf());
+        if (r.getToothRange() != null) p.setToothRange(r.getToothRange());
+        if (r.getBillingNote() != null) p.setBillingNote(r.getBillingNote());
+        if (r.getSnomedBodySite() != null) p.setSnomedBodySite(r.getSnomedBodySite());
+        if (r.getDiagnosticCode2() != null) p.setDiagnosticCode2(r.getDiagnosticCode2());
+        if (r.getDiagnosticCode3() != null) p.setDiagnosticCode3(r.getDiagnosticCode3());
+        if (r.getDiagnosticCode4() != null) p.setDiagnosticCode4(r.getDiagnosticCode4());
+        if (r.getDiscount() != null) p.setDiscount(BigDecimal.valueOf(r.getDiscount()));
+        if (r.getIsDateProsthEst() != null) p.setIsDateProsthEst(r.getIsDateProsthEst());
+        if (r.getIcdVersion() != null) p.setIcdVersion(r.getIcdVersion());
+    }
+
+    private ProcedureLogResponse loadSavedProcedureLog(UUID clinicId, long procNum) {
+        return procedureLogRepository.findById(new ProcedureLogId(clinicId, procNum))
+                .map(this::toProcedureLogResponse)
+                .orElseThrow(() -> procedureLogNotFound(procNum));
+    }
+
+    private static ApiException procedureLogNotFound(Long procNum) {
+        return new ApiException(HttpStatus.NOT_FOUND, "ProcedureLog not found with ProcNum: " + procNum);
     }
 
     @Override
@@ -184,6 +252,9 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
     @Transactional
     protected void saveProcedureLogToDb(ProcedureLogResponse dto) {
         try {
+            if (odSync.hasQueuedChanges(resolveClinicId(), OdSyncService.PROCEDURE_LOG, dto.getProcNum())) {
+                return; // our newer copy has not reached Open Dental yet
+            }
             ProcedureLog procedureLog = toProcedureLogEntity(dto);
             procedureLogRepository.save(procedureLog);
         } catch (Exception e) {

@@ -31,21 +31,21 @@ export async function listBackendAllergyDefinitions(offset = 0): Promise<Backend
   const params = new URLSearchParams({ Limit: '100' });
   if (offset > 0) params.set('Offset', String(offset));
   const query = `?${params.toString()}`;
-  const rows = await request<Raw[]>(`/api/allergydefs${query}`);
+  const rows = await request<Raw[]>(`/api/database/allergydefs${query}`);
   return rows.map(mapBackendAllergyDefinition);
 }
 
 export async function getBackendAllergyDefinition(
   allergyDefNum: number,
 ): Promise<BackendAllergyDefinition> {
-  const row = await request<Raw>(`/api/allergydefs/${allergyDefNum}`);
+  const row = await request<Raw>(`/api/database/allergydefs/${allergyDefNum}`);
   return mapBackendAllergyDefinition(row);
 }
 
 export async function createBackendAllergyDefinition(
   draft: AllergyDefinitionDraft,
 ): Promise<BackendAllergyDefinition> {
-  const row = await request<Raw>('/api/allergydefs', {
+  const row = await request<Raw>('/api/database/allergydefs', {
     method: 'POST',
     body: JSON.stringify({ Description: draft.description.trim() }),
   });
@@ -56,7 +56,7 @@ export async function updateBackendAllergyDefinition(
   allergyDefNum: number,
   draft: AllergyDefinitionDraft,
 ): Promise<BackendAllergyDefinition> {
-  const row = await request<Raw>(`/api/allergydefs/${allergyDefNum}`, {
+  const row = await request<Raw>(`/api/database/allergydefs/${allergyDefNum}`, {
     method: 'PUT',
     body: JSON.stringify({
       Description: draft.description.trim(),

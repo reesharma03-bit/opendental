@@ -34,6 +34,8 @@ drop view if exists public.v_clinic_activity;
 
 -- Drop all tenant data tables in dependency order (children before parents).
 -- CASCADE is a safety net for any residual foreign keys.
+drop table if exists public.od_sync_queue  cascade;
+drop table if exists public.od_resource_records cascade;
 drop table if exists public.webhook_events cascade;
 drop table if exists public.sync_runs        cascade;
 drop table if exists public.pat_fields       cascade;

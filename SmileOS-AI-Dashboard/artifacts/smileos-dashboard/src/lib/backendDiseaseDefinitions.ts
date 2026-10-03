@@ -29,19 +29,19 @@ export async function listBackendDiseaseDefinitions(offset = 0): Promise<Backend
     Limit: String(DISEASE_DEFINITION_PAGE_SIZE),
     Offset: String(offset),
   });
-  const rows = await request<Raw[]>(`/api/diseasedefs?${params.toString()}`);
+  const rows = await request<Raw[]>(`/api/database/diseasedefs?${params.toString()}`);
   return rows.map(mapBackendDiseaseDefinition);
 }
 
 export async function getBackendDiseaseDefinition(
   diseaseDefNum: number,
 ): Promise<BackendDiseaseDefinition> {
-  return mapBackendDiseaseDefinition(await request<Raw>(`/api/diseasedefs/${diseaseDefNum}`));
+  return mapBackendDiseaseDefinition(await request<Raw>(`/api/database/diseasedefs/${diseaseDefNum}`));
 }
 
 // Open Dental documents a bodyless 201 response for this operation.
 export async function createBackendDiseaseDefinition(diseaseName: string): Promise<void> {
-  await request<void>('/api/diseasedefs', {
+  await request<void>('/api/database/diseasedefs', {
     method: 'POST',
     body: JSON.stringify({ DiseaseName: diseaseName.trim() }),
   });

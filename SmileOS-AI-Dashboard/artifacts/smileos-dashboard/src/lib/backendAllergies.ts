@@ -40,12 +40,12 @@ export function mapBackendAllergy(raw: Raw): BackendAllergy {
 }
 
 export async function listBackendAllergies(patNum: number): Promise<BackendAllergy[]> {
-  const rows = await request<Raw[]>(`/api/allergies?${new URLSearchParams({ PatNum: String(patNum) })}`);
+  const rows = await request<Raw[]>(`/api/database/allergies?${new URLSearchParams({ PatNum: String(patNum) })}`);
   return rows.map(mapBackendAllergy);
 }
 
 export async function createBackendAllergy(patNum: number, draft: AllergyDraft): Promise<BackendAllergy> {
-  const row = await request<Raw>('/api/allergies', {
+  const row = await request<Raw>('/api/database/allergies', {
     method: 'POST',
     body: JSON.stringify({
       PatNum: patNum,
@@ -58,7 +58,7 @@ export async function createBackendAllergy(patNum: number, draft: AllergyDraft):
 }
 
 export async function updateBackendAllergy(allergyNum: number, draft: AllergyDraft): Promise<BackendAllergy> {
-  const row = await request<Raw>(`/api/allergies/${allergyNum}`, {
+  const row = await request<Raw>(`/api/database/allergies/${allergyNum}`, {
     method: 'PUT',
     body: JSON.stringify({
       Reaction: draft.reaction.trim(),
@@ -70,5 +70,5 @@ export async function updateBackendAllergy(allergyNum: number, draft: AllergyDra
 }
 
 export function deleteBackendAllergy(allergyNum: number): Promise<void> {
-  return request<void>(`/api/allergies/${allergyNum}`, { method: 'DELETE' });
+  return request<void>(`/api/database/allergies/${allergyNum}`, { method: 'DELETE' });
 }
