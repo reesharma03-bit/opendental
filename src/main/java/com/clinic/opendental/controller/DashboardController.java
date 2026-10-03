@@ -1,5 +1,7 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.security.CurrentUser;
+import com.clinic.opendental.security.Permission;
 import com.clinic.opendental.service.Impl.DashboardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -26,6 +28,7 @@ public class DashboardController {
     @GetMapping("/summary")
     public ResponseEntity<Map<String, Object>> summary(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return ResponseEntity.ok(dashboardService.summary(date != null ? date : LocalDate.now()));
+        return ResponseEntity.ok(dashboardService.summary(date != null ? date : LocalDate.now(),
+                CurrentUser.can(Permission.BILLING_READ)));
     }
 }

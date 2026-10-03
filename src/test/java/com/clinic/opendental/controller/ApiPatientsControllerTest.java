@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
@@ -43,6 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * alongside their existing lowercase and snake_case forms.</p>
  */
 @WebMvcTest(ApiPatientsController.class)
+// Controller behaviour only; who may call what is covered by SecurityRulesTest.
+@AutoConfigureMockMvc(addFilters = false)
 class ApiPatientsControllerTest {
 
     @Autowired

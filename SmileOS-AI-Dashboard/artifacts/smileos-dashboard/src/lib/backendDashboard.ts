@@ -49,6 +49,8 @@ export interface DashboardSummary {
     running: boolean;
   };
   unavailable: string[];
+  /** False for roles that may not see billing: production, collections and claims are left out. */
+  billingVisible?: boolean;
 }
 
 export const getDashboardSummary = () => request<DashboardSummary>('/api/dashboard/summary');

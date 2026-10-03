@@ -47,7 +47,8 @@ public class DashboardService {
         this.fullSyncService = fullSyncService;
     }
 
-    public Map<String, Object> summary(LocalDate day) {
+    /** @param includeBilling production, collections and claims only for roles that may see billing */
+    public Map<String, Object> summary(LocalDate day, boolean includeBilling) {
         UUID clinicId = clinicRepository.findByIsActiveTrue().stream().findFirst().map(Clinic::getId)
                 .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "No active clinic configured. Please register a clinic in the clinics table."));
@@ -60,14 +61,17 @@ public class DashboardService {
         out.put("appointments", figure("appointments", unavailable, () -> appointments(clinicId, day)));
         out.put("providers", figure("providers", unavailable, () -> providers(clinicId, day)));
         out.put("patients", figure("patients", unavailable, () -> patients(clinicId, day)));
-        out.put("production", figure("production", unavailable, () -> Map.of(
+        out.put("production", !includeBilling ? null : figure("production", unavailable, () -> Map.of(
                 "monthToDate", sum("SELECT COALESCE(SUM(proc_fee), 0) FROM procedure_logs WHERE clinic_id = ? "
                         + "AND proc_status = 'C' AND proc_date BETWEEN ? AND ?", clinicId, Date.valueOf(monthStart), Date.valueOf(day)),
                 "lastMonthToDate", sum("SELECT COALESCE(SUM(proc_fee), 0) FROM procedure_logs WHERE clinic_id = ? "
                         + "AND proc_status = 'C' AND proc_date BETWEEN ? AND ?", clinicId,
                         Date.valueOf(monthStart.minusMonths(1)), Date.valueOf(day.minusMonths(1))))));
-        out.put("collections", figure("collections", unavailable, () -> collections(clinicId, weekStart)));
-        out.put("attention", attention(clinicId, day, weekStart, unavailable));
+        out.put("collections", !includeBilling ? null : figure("collections", unavailable, () -> collections(clinicId, weekStart)));
+        Map<String, Object> attention = attention(clinicId, day, weekStart, unavailable);
+        if (!includeBilling) attention.remove("openClaims");
+        out.put("attention", attention);
+        out.put("billingVisible", includeBilling);
         out.put("recentPatients", figure("recentPatients", unavailable, () -> recentPatients(clinicId, day)));
         out.put("sync", sync(clinicId, unavailable));
         out.put("unavailable", unavailable);

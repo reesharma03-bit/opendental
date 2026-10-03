@@ -72,6 +72,26 @@ reconciliation:
   enabled: ${RECONCILIATION_ENABLED:true}
   cron: ${RECONCILIATION_CRON:0 * * * * *}
 
+# Dashboard sign-in. Sessions end after session-minutes without activity (HIPAA
+# automatic log-off). Set AUTH_JWT_SECRET (32+ random characters) so sessions survive
+# restarts, and AUTH_COOKIE_SECURE=true when the dashboard is served over HTTPS.
+# The first Admin is created from the bootstrap settings when there are no users yet.
+auth:
+  jwt-secret: ${AUTH_JWT_SECRET:}
+  session-minutes: ${AUTH_SESSION_MINUTES:30}
+  cookie-secure: ${AUTH_COOKIE_SECURE:false}
+  max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:5}
+  lockout-minutes: ${AUTH_LOCKOUT_MINUTES:15}
+  bootstrap-admin-email: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:}
+  bootstrap-admin-password: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:}
+  bootstrap-admin-name: ${AUTH_BOOTSTRAP_ADMIN_NAME:Practice Admin}
+
+# AI Assistant (dashboard). Uses Claude through the Anthropic API; leave the key empty to
+# switch the assistant off. Only send patient data to the API under a signed BAA.
+assistant:
+  api-key: ${ANTHROPIC_API_KEY:}
+  model: ${ASSISTANT_MODEL:claude-opus-5-5}
+
 # Copies Open Dental resources without their own table into od_resource_records.
 # cron: resources Open Dental lists in one paged call.
 # full-cron: everything, including resources fetched per patient / per parent

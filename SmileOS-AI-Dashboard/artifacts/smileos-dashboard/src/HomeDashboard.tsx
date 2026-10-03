@@ -130,6 +130,7 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
   const periodTotal = period === 'This week' ? data?.collections?.thisWeek : data?.collections?.lastWeek;
   const recent = (data?.recentPatients ?? []).filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
   const attention = data?.attention;
+  const billing = data?.billingVisible !== false;
   const sync = data?.sync;
 
   const checkIn = async (row: DashboardAppointment) => {
@@ -198,18 +199,18 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
               deltaText={data.patients ? `+${data.patients.newLast30Days} new` : undefined}
               icon={Users} iconTone="bg-cyan-50 text-cyan-700" testId="card-kpi-patients"
               note={data.patients ? `${count(data.patients.total)} on file · new = first visit in the last 30 days` : 'Patients not available'} />
-            <MetricCard label="Production this month" value={money(data.production?.monthToDate)}
+            {billing && <MetricCard label="Production this month" value={money(data.production?.monthToDate)}
               delta={change(data.production?.monthToDate, data.production?.lastMonthToDate)}
               icon={CircleDollarSign} iconTone="bg-emerald-50 text-emerald-700" testId="card-kpi-production"
-              note={data.production ? `Completed procedures · ${money(data.production.lastMonthToDate)} same point last month` : 'Procedure logs not available'} />
-            <MetricCard label="Collections this week" value={money(data.collections?.thisWeek)}
+              note={data.production ? `Completed procedures · ${money(data.production.lastMonthToDate)} same point last month` : 'Procedure logs not available'} />}
+            {billing && <MetricCard label="Collections this week" value={money(data.collections?.thisWeek)}
               delta={change(data.collections?.thisWeek, data.collections?.lastWeek)}
               icon={Wallet} iconTone="bg-emerald-50 text-emerald-700" testId="card-kpi-collections"
-              note={data.collections ? `Payments received · ${money(data.collections.lastWeek)} last week` : 'Payments not synced yet'} />
-            <MetricCard label="Open insurance claims" value={count(attention?.openClaims?.count)}
+              note={data.collections ? `Payments received · ${money(data.collections.lastWeek)} last week` : 'Payments not synced yet'} />}
+            {billing && <MetricCard label="Open insurance claims" value={count(attention?.openClaims?.count)}
               deltaText={attention?.openClaims ? money(attention.openClaims.amount) : undefined}
               icon={FileText} iconTone="bg-amber-50 text-amber-700" testId="card-kpi-claims"
-              note={attention?.openClaims ? 'Unsent, on hold, waiting or sent' : 'Claims not synced yet'} />
+              note={attention?.openClaims ? 'Unsent, on hold, waiting or sent' : 'Claims not synced yet'} />}
             <MetricCard label="Recalls due (7 days)" value={count(attention?.recallsDueNext7Days)}
               icon={BellRing} iconTone="bg-cyan-50 text-cyan-700" testId="card-kpi-recalls"
               note={attention?.recallsDueNext7Days == null ? 'Recalls not synced yet' : 'Due and not yet scheduled'} />
@@ -306,8 +307,8 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
             </div>
           </section>
 
-          <section className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.22fr)_minmax(330px,.78fr)]">
-            <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)] sm:p-6" data-testid="section-revenue-chart">
+          <section className={`mt-5 grid grid-cols-1 gap-5 ${billing ? 'xl:grid-cols-[minmax(0,1.22fr)_minmax(330px,.78fr)]' : ''}`}>
+            {billing && <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)] sm:p-6" data-testid="section-revenue-chart">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -338,7 +339,7 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
                   )
                   : <p className="flex h-full items-center justify-center text-[11px] text-slate-400">Payments have not been synced from Open Dental yet.</p>}
               </div>
-            </section>
+            </section>}
 
             <section className="rounded-2xl border border-slate-200/75 bg-white p-5 shadow-[0_2px_10px_rgba(26,49,91,0.025)] sm:p-6" data-testid="section-recent-patients">
               <div className="flex items-start justify-between"><div><h2 className="font-[Manrope] text-[14px] font-extrabold text-slate-800">Recent patients</h2><p className="mt-1 text-[10px] text-slate-400">Newest patients at your practice</p></div><button type="button" onClick={() => onNavigate('Patients')} data-testid="button-view-patients" className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800">View all <ArrowRight size={12} /></button></div>

@@ -4,7 +4,7 @@ import {
   Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, CreditCard, LayoutDashboard, BellRing,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
-  RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap,
+  RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap, KeyRound, LogOut, UserCog,
 } from 'lucide-react';
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -18,6 +18,12 @@ import PatientsScreen from './PatientsScreen';
 import SubscriptionScreen from './SubscriptionScreen';
 import DatabaseResourceScreen from './DatabaseResourceScreen';
 import HomeDashboard from './HomeDashboard';
+import AssistantPanel from './AssistantPanel';
+import UsersScreen from './UsersScreen';
+import { useAuth } from './auth/AuthContext';
+import { ChangePasswordForm } from './auth/SignInScreens';
+import { getCapabilities } from './lib/databaseResources';
+import type { Permission } from './lib/backendAuth';
 import { getSyncStatus, startForceSync, type SyncStatus } from './lib/backendSync';
 
 const initialResource = (() => {
@@ -26,13 +32,31 @@ const initialResource = (() => {
 })();
 import { apiNavigationGroups, formatApiResourceName } from './apiNavigation';
 
-const navItems: { label: string; icon: typeof Users; badge?: string }[] = [
+/** Each item shows only for roles with its permission (none: everyone signed in). */
+const navItems: { label: string; icon: typeof Users; badge?: string; permission?: Permission }[] = [
   { label: 'Dashboard', icon: LayoutDashboard },
-  { label: 'Patients', icon: Users },
-  { label: 'Appointments', icon: CalendarDays },
-  { label: 'Subscription', icon: BellRing },
+  { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
+  { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
+  { label: 'Subscription', icon: BellRing, permission: 'SYNC_MANAGE' },
   { label: 'API Catalog', icon: BookOpen },
+  { label: 'Users', icon: UserCog, permission: 'USERS_MANAGE' },
 ];
+
+const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?';
+
+/** Catalog entries the signed-in user may open (from the backend's view of their role). */
+function useVisibleResources(): Set<string> | null {
+  const { user } = useAuth();
+  const [visible, setVisible] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    let live = true;
+    getCapabilities()
+      .then((caps) => { if (live) setVisible(new Set(caps.keys())); })
+      .catch(() => { if (live) setVisible(new Set()); });
+    return () => { live = false; };
+  }, [user?.id, user?.role]);
+  return visible;
+}
 
 function syncSummary(status: SyncStatus | null): string {
   if (!status || status.state === 'idle') return 'Copies all Open Dental data into the database.';
@@ -119,6 +143,11 @@ function Sidebar({
       ? groups.filter((group) => group !== label)
       : [...groups, label]);
   };
+  const { user, can } = useAuth();
+  const visibleResources = useVisibleResources();
+  const canOpen = (resource: string) => resource === 'ChartModules'
+    ? can('CLINICAL_READ')
+    : Boolean(visibleResources?.has(resource.toLowerCase()));
 
   return (
     <>
@@ -143,7 +172,7 @@ function Sidebar({
         <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3 ${collapsed ? 'md:px-3' : ''}`}>
           <p className={`mb-3 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 ${collapsed ? 'md:hidden' : ''}`}>Workspace</p>
           <nav className="space-y-1" aria-label="Main navigation">
-            {navItems.map(({ label, icon: Icon, badge }) => (
+            {navItems.filter((item) => !item.permission || can(item.permission)).map(({ label, icon: Icon, badge }) => (
               <button key={label} onClick={() => { setActiveNav(label); onClose(); }} data-testid={`nav-${label.toLowerCase().replaceAll(' ', '-')}`} aria-current={activeNav === label ? 'page' : undefined} title={collapsed ? label : undefined}
                 className={`group flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left text-[13px] font-semibold transition ${activeNav === label ? 'bg-blue-50 text-blue-700 shadow-[inset_2px_0_0_#315fe7]' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
                 <Icon size={18} strokeWidth={activeNav === label ? 2.25 : 1.8} className="shrink-0" />
@@ -154,9 +183,11 @@ function Sidebar({
           </nav>
           <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed ? 'md:hidden' : ''}`}>
             <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Open Dental API</p>
-            <ForceSyncButton />
+            {can('SYNC_MANAGE') && <ForceSyncButton />}
             <nav aria-label="Open Dental API resources" className="space-y-1">
-              {apiNavigationGroups.map(({ label, resources }) => {
+              {apiNavigationGroups.map(({ label, resources: allResources }) => {
+                const resources = allResources.filter(canOpen);
+                if (resources.length === 0) return null;
                 const expanded = expandedGroups.includes(label);
                 const groupId = `api-nav-group-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`;
                 return (
@@ -204,8 +235,8 @@ function Sidebar({
             <button onClick={() => setActiveNav('Reports')} data-testid="button-practice-health" className="mt-2 flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900">View practice report <ArrowRight size={12} /></button>
           </div>
           <div className={`flex items-center gap-3 rounded-xl px-2 py-3 ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e4edf9] text-xs font-bold text-[#395781]">DS</div>
-            <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}><p className="truncate text-[12px] font-bold text-slate-800">Dr. Sharma</p><p className="truncate text-[10px] text-slate-400">Practice owner</p></div>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e4edf9] text-xs font-bold text-[#395781]">{initialsOf(user?.fullName ?? '')}</div>
+            <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}><p className="truncate text-[12px] font-bold text-slate-800" data-testid="text-signed-in-name">{user?.fullName}</p><p className="truncate text-[10px] text-slate-400">{user?.roleLabel}</p></div>
             <MoreHorizontal size={17} className={`ml-auto text-slate-400 ${collapsed ? 'md:hidden' : ''}`} />
           </div>
         </div>
@@ -229,6 +260,9 @@ function App() {
   const [createPatientRequest, setCreatePatientRequest] = useState(0);
   const [createAppointmentRequest, setCreateAppointmentRequest] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const { user, can, signOut } = useAuth();
   useEffect(() => {
     const restoreResource = () => {
       const value = new URLSearchParams(window.location.search).get('resource');
@@ -272,10 +306,19 @@ function App() {
               <button onClick={() => setNoticeOpen((value) => !value)} data-testid="button-notifications" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-800"><Bell size={18} strokeWidth={1.8} /><span className="absolute right-[8px] top-[7px] h-2 w-2 rounded-full border-2 border-[#f8f9fc] bg-rose-500" /></button>
               {noticeOpen && <div className="absolute right-0 top-12 z-50 w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl" data-testid="panel-notifications"><div className="flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Notifications</p><button onClick={() => { setNoticeOpen(false); announce('All caught up.'); }} className="text-[10px] font-semibold text-blue-600" data-testid="button-mark-read">Mark all read</button></div><div className="mt-4 space-y-3"><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Nisha Patel confirmed her 9:45 appointment.</p><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />3 invoices are due for follow-up today.</p></div></div>}
             </div>
-            <button onClick={() => { setAiOpen((value) => !value); announce('AI Assistant is a display-only sample feature.'); }} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>
-            <button onClick={() => announce('Profile menu opened.')} data-testid="button-user-profile" aria-label="Open profile" className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-1.5 transition hover:bg-white">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e4edf9] text-[10px] font-bold text-[#395781]">DS</span><span className="hidden text-left sm:block"><span className="block text-[11px] font-bold leading-4 text-slate-700">Dr. Sharma</span><span className="block text-[9px] text-slate-400">Owner</span></span><ChevronDown size={13} className="hidden text-slate-400 sm:block" />
-            </button>
+            {can('ASSISTANT_USE') && <button onClick={() => setAiOpen(true)} aria-haspopup="dialog" aria-expanded={aiOpen} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>}
+            <div className="relative">
+              <button onClick={() => setProfileOpen((open) => !open)} data-testid="button-user-profile" aria-label="Open profile menu" aria-haspopup="menu" aria-expanded={profileOpen} className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-1.5 transition hover:bg-white">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e4edf9] text-[10px] font-bold text-[#395781]">{initialsOf(user?.fullName ?? '')}</span><span className="hidden text-left sm:block"><span className="block text-[11px] font-bold leading-4 text-slate-700">{user?.fullName}</span><span className="block text-[9px] text-slate-400">{user?.roleLabel}</span></span><ChevronDown size={13} className="hidden text-slate-400 sm:block" />
+              </button>
+              {profileOpen && (
+                <div role="menu" className="absolute right-0 top-12 z-50 w-[230px] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl" data-testid="menu-profile">
+                  <div className="border-b border-slate-100 px-3 pb-2.5 pt-1.5"><p className="truncate text-[12px] font-bold text-slate-800">{user?.fullName}</p><p className="truncate text-[10px] text-slate-400">{user?.email} · {user?.roleLabel}</p></div>
+                  <button role="menuitem" type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50"><KeyRound size={14} /> Change password</button>
+                  <button role="menuitem" type="button" onClick={() => { setProfileOpen(false); void signOut(); }} data-testid="button-sign-out" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11.5px] font-semibold text-rose-600 hover:bg-rose-50"><LogOut size={14} /> Sign out</button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -288,11 +331,14 @@ function App() {
             onAddPatient={() => { setActiveNav('Patients'); setCreatePatientRequest((request) => request + 1); }}
           />
         )}
-        {activeNav === 'Patients' && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
-        {activeNav === 'Subscription' && <SubscriptionScreen />}
-        <div hidden={activeNav !== 'Appointments'}>
-          <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
-        </div>
+        {activeNav === 'Patients' && can('PATIENTS_READ') && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
+        {activeNav === 'Subscription' && can('SYNC_MANAGE') && <SubscriptionScreen />}
+        {activeNav === 'Users' && can('USERS_MANAGE') && <UsersScreen />}
+        {can('APPOINTMENTS_READ') && (
+          <div hidden={activeNav !== 'Appointments'}>
+            <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
+          </div>
+        )}
         {activeNav === 'API Catalog' && (
           selectedApiResource === 'Allergies'
             ? <AllergiesScreen />
@@ -305,6 +351,19 @@ function App() {
               : <ApiCatalogScreen selectedResource={selectedApiResource} />
         )}
       </main>
+      {passwordOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={(e) => { if (e.target === e.currentTarget) setPasswordOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="change-password-title" className="w-full max-w-[400px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <h2 id="change-password-title" className="font-[Manrope] text-[18px] font-extrabold text-slate-900">Change password</h2>
+            <ChangePasswordForm onDone={() => { setPasswordOpen(false); announce('Password changed.'); }} onCancel={() => setPasswordOpen(false)} />
+          </section>
+        </div>
+      )}
+      <AssistantPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onOpenPatient={(patient) => { setAiOpen(false); setSearch(patient.name); setActiveNav('Patients'); }}
+      />
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
     </div>
   );

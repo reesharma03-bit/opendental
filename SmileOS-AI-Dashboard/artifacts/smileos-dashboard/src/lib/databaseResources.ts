@@ -27,6 +27,11 @@ const SYSTEM_FIELDS = /^(DateTStamp|SecDateTEdit|SecDateTEntry|SecDateEntry|SecU
 
 let capabilities: Promise<Map<string, DatabaseCapability>> | null = null;
 
+/** What a user may see and change depends on who is signed in: forget it on sign-in / sign-out. */
+export function resetCapabilities() {
+  capabilities = null;
+}
+
 /** What each resource may change, from the backend (cached for the session). */
 export function getCapabilities(): Promise<Map<string, DatabaseCapability>> {
   capabilities ??= request<DatabaseCapability[]>('/api/database')

@@ -1,5 +1,8 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.security.CurrentUser;
+import com.clinic.opendental.security.Permission;
+import com.clinic.opendental.security.PermissionResolver;
 import com.clinic.opendental.service.Impl.DatabaseResourceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -29,10 +32,23 @@ import java.util.Map;
 public class DatabaseResourcesController {
 
     private final DatabaseResourceService service;
+    private final PermissionResolver permissions;
 
+    /** Resources this user may read, with create/update/delete only where their role may change them. */
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> resources() {
-        return ResponseEntity.ok(service.resources());
+        java.util.Set<Permission> mine = CurrentUser.permissions();
+        return ResponseEntity.ok(service.resources().stream()
+                .filter(r -> permissions.allowed(mine, (String) r.get("resource"), false))
+                .map(r -> {
+                    boolean write = permissions.allowed(mine, (String) r.get("resource"), true);
+                    Map<String, Object> out = new java.util.LinkedHashMap<>(r);
+                    out.put("create", write && Boolean.TRUE.equals(r.get("create")));
+                    out.put("update", write && Boolean.TRUE.equals(r.get("update")));
+                    out.put("delete", write && Boolean.TRUE.equals(r.get("delete")));
+                    return out;
+                })
+                .toList());
     }
 
     @GetMapping("/{resource}")

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
@@ -19,6 +20,8 @@ import com.clinic.opendental.dto.query.QueryRequest;
 import com.clinic.opendental.service.WebhookService;
 
 @WebMvcTest(OpenDentalWebhookController.class)
+// Controller behaviour only; who may call what is covered by SecurityRulesTest.
+@AutoConfigureMockMvc(addFilters = false)
 class OpenDentalWebhookControllerTest {
 
     @Autowired
