@@ -9,10 +9,11 @@ This repository contains a Java Spring Boot API at the root and the SmileOS Reac
 - The artifact-managed workflow supplies `PORT` and `BASE_PATH` automatically; start/restart the existing workflow rather than overriding it.
 - Manual dashboard command outside that workflow: `cd SmileOS-AI-Dashboard && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/smileos-dashboard run dev`.
 - Java backend workflow: `Open Dental Java API`.
-- Java backend command: `PORT=8080 RECONCILIATION_ENABLED=false mvn spring-boot:run`.
+- Java backend command: `PORT=8099 RECONCILIATION_ENABLED=false mvn spring-boot:run`.
 - Scheduled synchronization is deliberately disabled during import setup to avoid automatic writes to the existing database. Enable it only after explicitly configuring and approving live Open Dental synchronization.
-- The dashboard binds to `0.0.0.0` on the artifact-assigned port; Vite forwards `/api` requests to the Java backend on port 8080. Browser requests use relative URLs by default.
+- The dashboard binds to `0.0.0.0` on the artifact-assigned port; Vite forwards `/api` requests to the Java backend on port 8099. Browser requests use relative URLs by default.
 - The separate Express API artifact only supplies a health endpoint and is not the dashboard's patient/appointment backend. It does not replace the Java API.
+- Express API workflow: `SmileOS-AI-Dashboard/artifacts/api-server: API Server`, listening on its artifact-assigned port (currently 8080). Its health endpoint is `/api/healthz`; Java health is `/actuator/health`.
 - The mockup sandbox is for design previews, not needed to run the application.
 
 ## Required backend configuration
@@ -22,6 +23,8 @@ Provide `SUPABASE_DB_URL` (JDBC PostgreSQL URL), `SUPABASE_DB_USERNAME`, and `SU
 The imported application configuration contains committed database credentials. Do not use those defaults; rotate the exposed credentials and remove them from source/history in a separate security cleanup.
 
 Set `OPENDENTAL_BASE_URL` to the existing Open Dental service when live synchronization is needed. Existing patient reads may fall back to stored Supabase data, but this does not prove live synchronization. The direct Patients & Families resource adapters return explicit connectivity errors when the upstream service is unavailable.
+
+Import setup verification: the dashboard renders, workspace TypeScript checks and the dashboard production build pass, and both API health endpoints return HTTP 200. The three Supabase secrets above are currently absent, and the configured Open Dental upstream is not a valid HTTP URL. These checks do not establish safe database credential configuration or a working live Open Dental connection. Do not enable synchronization or attempt clinical writes until those settings are corrected.
 
 ## Clinical resource behavior
 
