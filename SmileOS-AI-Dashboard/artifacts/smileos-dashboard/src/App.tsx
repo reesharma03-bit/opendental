@@ -126,7 +126,7 @@ function Sidebar({
               className="mb-2 flex min-h-9 w-full cursor-not-allowed items-center gap-2 rounded-lg px-3 text-left text-[11px] font-semibold text-slate-500"
             >
               <RefreshCw size={14} className="shrink-0" />
-              <span>Force refresh</span>
+              <span>Force Sync</span>
               <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-400">UI only</span>
             </button>
             <nav aria-label="Open Dental API resources" className="space-y-1">
