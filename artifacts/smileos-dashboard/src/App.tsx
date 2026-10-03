@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3,
   Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
@@ -11,7 +11,22 @@ import {
 } from 'recharts';
 import AppointmentsScreen from './AppointmentsScreen';
 import ApiCatalogScreen from './ApiCatalogScreen';
+import AllergiesScreen from './AllergiesScreen';
+import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
+import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsScreen from './PatientsScreen';
+import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
+import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
+import { schedulingPreviewDefinitions } from './schedulingDefinitions';
+import { clinicalCarePreviewDefinitions } from './clinicalCareDefinitions';
+import { billingPreviewDefinitions } from './billingDefinitions';
+import { usePatientsFamilyPreviews } from './patients-families/usePatientsFamilyPreviews';
+
+const initialResource = (() => {
+  const name = new URLSearchParams(window.location.search).get('resource');
+  return name && apiNavigationGroups.some((g) => (g.resources as readonly string[]).includes(name)) ? name : null;
+})();
+import { apiNavigationGroups, formatApiResourceName } from './apiNavigation';
 
 type Patient = { name: string; initials: string; detail: string; color: string; id: string };
 
@@ -20,12 +35,6 @@ const navItems = [
   { label: 'Patients', icon: Users, badge: '2.4k' },
   { label: 'Appointments', icon: CalendarDays },
   { label: 'API Catalog', icon: BookOpen },
-  { label: 'Procedures', icon: Stethoscope },
-  { label: 'Billing', icon: CreditCard },
-  { label: 'Inbox', icon: MessageSquareText, badge: '4' },
-  { label: 'AI Assistant', icon: Sparkles, special: true },
-  { label: 'Reports', icon: BarChart3 },
-  { label: 'Settings', icon: Settings },
 ];
 
 const patients: Patient[] = [
@@ -58,10 +67,21 @@ const statusClasses: Record<string, string> = {
 
 function Sidebar({
   collapsed, onToggle, activeNav, setActiveNav, mobileOpen, onClose,
+  selectedResource, onSelectResource,
 }: {
   collapsed: boolean; onToggle: () => void; activeNav: string; setActiveNav: (name: string) => void;
   mobileOpen: boolean; onClose: () => void;
+  selectedResource: string | null; onSelectResource: (name: string) => void;
 }) {
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() =>
+    apiNavigationGroups.filter((group) => (group.resources as readonly string[]).includes(selectedResource ?? '')).map((group) => group.label));
+
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((groups) => groups.includes(label)
+      ? groups.filter((group) => group !== label)
+      : [...groups, label]);
+  };
+
   return (
     <>
       {mobileOpen && <button aria-label="Close navigation" data-testid="button-close-mobile-nav" onClick={onClose} className="fixed inset-0 z-40 bg-slate-950/30 backdrop-blur-[2px] md:hidden" />}
@@ -82,19 +102,61 @@ function Sidebar({
           <button data-testid="button-close-sidebar" onClick={onClose} aria-label="Close navigation" className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"><X size={18} /></button>
         </div>
         {collapsed && <button data-testid="button-expand-sidebar" onClick={onToggle} aria-label="Expand sidebar" className="hidden h-8 w-8 items-center justify-center self-center rounded-lg text-slate-400 hover:bg-slate-100 md:flex"><ChevronRight size={16} /></button>}
-        <div className={`px-4 pb-2 pt-3 ${collapsed ? 'md:px-3' : ''}`}>
+        <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3 ${collapsed ? 'md:px-3' : ''}`}>
           <p className={`mb-3 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 ${collapsed ? 'md:hidden' : ''}`}>Workspace</p>
           <nav className="space-y-1" aria-label="Main navigation">
-            {navItems.map(({ label, icon: Icon, badge, special }) => (
+            {navItems.map(({ label, icon: Icon, badge }) => (
               <button key={label} onClick={() => { setActiveNav(label); onClose(); }} data-testid={`nav-${label.toLowerCase().replaceAll(' ', '-')}`} aria-current={activeNav === label ? 'page' : undefined} title={collapsed ? label : undefined}
                 className={`group flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left text-[13px] font-semibold transition ${activeNav === label ? 'bg-blue-50 text-blue-700 shadow-[inset_2px_0_0_#315fe7]' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
-                <Icon size={18} strokeWidth={activeNav === label ? 2.25 : 1.8} className={`${special ? 'text-indigo-500' : ''} shrink-0`} />
+                <Icon size={18} strokeWidth={activeNav === label ? 2.25 : 1.8} className="shrink-0" />
                 <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
-                {badge && <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${label === 'Inbox' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'} ${collapsed ? 'md:hidden' : ''}`}>{badge}</span>}
-                {special && !collapsed && <span className="ml-auto rounded-md bg-indigo-50 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-indigo-600">New</span>}
+                {badge && <span className={`ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 ${collapsed ? 'md:hidden' : ''}`}>{badge}</span>}
               </button>
             ))}
           </nav>
+          <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed ? 'md:hidden' : ''}`}>
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Open Dental API</p>
+            <nav aria-label="Open Dental API resources" className="space-y-1">
+              {apiNavigationGroups.map(({ label, resources }) => {
+                const expanded = expandedGroups.includes(label);
+                const groupId = `api-nav-group-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`;
+                return (
+                  <section key={label}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(label)}
+                      aria-expanded={expanded}
+                      aria-controls={groupId}
+                      data-testid={`button-api-group-${groupId.replace('api-nav-group-', '')}`}
+                      className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                      <span className="min-w-0 flex-1">{label}</span>
+                      <span className="text-[9px] font-medium text-slate-400">{resources.length}</span>
+                    </button>
+                    {expanded && (
+                      <ul id={groupId} className="mb-2 ml-[17px] border-l border-slate-200 pl-2">
+                        {resources.map((resource) => (
+                          <li key={resource}>
+                            <button
+                              type="button"
+                              onClick={() => { onSelectResource(resource); onClose(); }}
+                              aria-current={selectedResource === resource && activeNav === 'API Catalog' ? 'page' : undefined}
+                              data-testid={`nav-api-resource-${resource}`}
+                              title={resource}
+                              className={`min-h-8 w-full truncate rounded-md px-2 text-left text-[10px] font-medium transition ${selectedResource === resource && activeNav === 'API Catalog' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                            >
+                              {formatApiResourceName(resource)}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                );
+              })}
+            </nav>
+          </div>
         </div>
         <div className="mt-auto px-4 pb-4">
           <div className={`mb-4 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50 p-4 ${collapsed ? 'md:hidden' : ''}`}>
@@ -132,7 +194,14 @@ function Avatar({ initials, tone }: { initials: string; tone?: string }) {
 function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState('Dashboard');
+  const [activeNav, setActiveNav] = useState(initialResource ? 'API Catalog' : 'Dashboard');
+  const [selectedApiResource, setSelectedApiResource] = useState<string | null>(initialResource);
+  const { records: previewRecords, dispatch: dispatchPreview } = usePatientsFamilyPreviews();
+  const previewDefinition = selectedApiResource
+    ? patientFamilyPreviewDefinitions[selectedApiResource]
+      ?? schedulingPreviewDefinitions[selectedApiResource]
+      ?? clinicalCarePreviewDefinitions[selectedApiResource]
+      ?? billingPreviewDefinitions[selectedApiResource] : undefined;
   const [search, setSearch] = useState('');
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [toast, setToast] = useState('');
@@ -141,6 +210,16 @@ function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [period, setPeriod] = useState('This week');
   const [checkedIn, setCheckedIn] = useState<string[]>(['Aarav Mehta']);
+  useEffect(() => {
+    const restoreResource = () => {
+      const value = new URLSearchParams(window.location.search).get('resource');
+      const resource = value && apiNavigationGroups.some((group) => (group.resources as readonly string[]).includes(value)) ? value : null;
+      setSelectedApiResource(resource);
+      setActiveNav(resource ? 'API Catalog' : 'Dashboard');
+    };
+    window.addEventListener('popstate', restoreResource);
+    return () => window.removeEventListener('popstate', restoreResource);
+  }, []);
 
   const visibleAppointments = useMemo(() => appointments.filter((item) =>
     `${item.name} ${item.treatment} ${item.dentist} ${item.status}`.toLowerCase().includes(search.toLowerCase())), [search]);
@@ -153,17 +232,38 @@ function App() {
     setToast(message);
     window.setTimeout(() => setToast(''), 3200);
   };
+  const clearPatientCreateRequest = useCallback(() => setCreatePatientRequest(0), []);
   const runQuickAction = (name: string) => {
-    if (name === 'Dashboard' || name === 'Patients' || name === 'Appointments' || name === 'API Catalog') {
-      setActiveNav(name);
-      return;
-    }
-    announce(`${name} is a navigation placeholder in this sample.`);
+    setActiveNav(name);
+    if (name === 'API Catalog') setSelectedApiResource(null);
+    window.history.pushState(null, '', name === 'Dashboard' ? '/' : window.location.pathname);
   };
+  const openApiResource = (name: string) => {
+    setSelectedApiResource(name);
+    setActiveNav('API Catalog');
+    window.history.pushState(null, '', `/?resource=${encodeURIComponent(name)}`);
+  };
+  const renderPatientFamilyPreview = (definition: NonNullable<typeof previewDefinition>, createRequest = 0) => (
+    <PatientsFamiliesPreviewScreen
+      key={definition.resource}
+      definition={definition}
+      rows={previewRecords[definition.resource] ?? []}
+      createRequest={createRequest}
+      onCreate={(values) => dispatchPreview({
+        type: 'create', resource: definition.resource, id: crypto.randomUUID(), values,
+      })}
+      onUpdate={(id, values) => dispatchPreview({
+        type: 'update', resource: definition.resource, id, values,
+      })}
+      onDelete={(id) => dispatchPreview({
+        type: 'delete', resource: definition.resource, id,
+      })}
+    />
+  );
 
   return (
     <div className="min-h-[100dvh] bg-[#f5f7fb] text-slate-800">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} activeNav={activeNav} setActiveNav={runQuickAction} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} activeNav={activeNav} setActiveNav={runQuickAction} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} selectedResource={selectedApiResource} onSelectResource={openApiResource} />
       <main className={`min-h-[100dvh] transition-[margin] duration-300 md:ml-[258px] ${collapsed ? 'md:ml-[82px]' : ''}`}>
         <header className="sticky top-0 z-30 flex h-[72px] items-center gap-3 border-b border-slate-200/70 bg-[#f8f9fc]/95 px-4 backdrop-blur-md sm:px-6 lg:px-9">
           <button onClick={() => setMobileOpen(true)} data-testid="button-open-mobile-nav" aria-label="Open navigation" className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden"><Menu size={20} /></button>
@@ -280,15 +380,21 @@ function App() {
 
           <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-400 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS keeps your practice in sync.</span><span>Sample dashboard data · For display purposes only</span></footer>
         </div>
-        <div hidden={activeNav !== 'Patients'}>
-          <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} />
-        </div>
+        {activeNav === 'Patients' && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
         </div>
-        <div hidden={activeNav !== 'API Catalog'}>
-          <ApiCatalogScreen />
-        </div>
+        {activeNav === 'API Catalog' && (
+          selectedApiResource === 'Allergies'
+            ? <AllergiesScreen />
+            : selectedApiResource === 'AllergyDefs'
+              ? <AllergyDefinitionsScreen />
+            : selectedApiResource === 'DiseaseDefs'
+              ? <DiseaseDefinitionsScreen />
+            : previewDefinition
+              ? renderPatientFamilyPreview(previewDefinition)
+              : <ApiCatalogScreen selectedResource={selectedApiResource} />
+        )}
       </main>
       {toast && <div role="status" data-testid="status-feedback" className="fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-medium text-white shadow-xl"><CheckCircle2 size={15} className="text-emerald-300" />{toast}</div>}
     </div>

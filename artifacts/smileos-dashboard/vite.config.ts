@@ -69,6 +69,19 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8099',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // The browser request is same-origin to Vite. Don't forward its
+            // Replit preview Origin to Spring's localhost-only CORS allowlist.
+            proxyReq.removeHeader('origin');
+          });
+        },
+      },
+    },
     fs: {
       strict: true,
     },

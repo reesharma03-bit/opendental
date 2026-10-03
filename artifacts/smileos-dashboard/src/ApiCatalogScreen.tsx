@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, ExternalLink, Search, ShieldAlert, X } from 'lucide-react';
 import { API_SPEC_URL, apiResources } from './apiResources';
 
-export default function ApiCatalogScreen() {
-  const [query, setQuery] = useState('');
+export default function ApiCatalogScreen({ selectedResource = null }: { selectedResource?: string | null }) {
+  const [query, setQuery] = useState(selectedResource ?? '');
+  useEffect(() => setQuery(selectedResource ?? ''), [selectedResource]);
   const filteredResources = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return apiResources.filter((resource) => resource.name.toLowerCase().includes(normalized));
