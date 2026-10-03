@@ -47,7 +47,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8099 RECONCILIATION_ENABLED=false mvn spring-boot:run"
+args = "PORT=8099 SPRING_PROFILES_ACTIVE=replit RECONCILIATION_ENABLED=false mvn spring-boot:run"
 waitForPort = 8099
 
 [postMerge]

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3,
   Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  CircleDollarSign, Clock3, CreditCard, LayoutDashboard,
+  CircleDollarSign, Clock3, CreditCard, LayoutDashboard, BellRing,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
   Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap,
 } from 'lucide-react';
@@ -15,6 +15,7 @@ import AllergiesScreen from './AllergiesScreen';
 import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
 import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsScreen from './PatientsScreen';
+import SubscriptionScreen from './SubscriptionScreen';
 import PatientsFamiliesPreviewScreen from './patients-families/PatientsFamiliesPreviewScreen';
 import { patientFamilyPreviewDefinitions } from './patients-families/definitions';
 import { schedulingPreviewDefinitions } from './schedulingDefinitions';
@@ -34,6 +35,7 @@ const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Patients', icon: Users, badge: '2.4k' },
   { label: 'Appointments', icon: CalendarDays },
+  { label: 'Subscription', icon: BellRing },
   { label: 'API Catalog', icon: BookOpen },
 ];
 
@@ -386,6 +388,7 @@ function App() {
           <footer className="mt-6 flex flex-col items-center justify-between gap-2 border-t border-slate-200/75 pt-4 text-[9px] text-slate-500 sm:flex-row"><span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-emerald-600" /> SmileOS practice workspace</span><span>Demo preview · Local sample metrics only · For display purposes only</span></footer>
         </div>
         {activeNav === 'Patients' && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
+        {activeNav === 'Subscription' && <SubscriptionScreen />}
         <div hidden={activeNav !== 'Appointments'}>
           <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
         </div>
