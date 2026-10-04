@@ -12,7 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** The Force Sync button: one background run at a time, covering every table and resource. */
@@ -30,7 +30,7 @@ class FullSyncServiceTest {
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
         when(mirror.sync(any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 2, 0, null));
-        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
+        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
 
         Map<String, Object> started = service.startFullSync("force");
         assertThat(started.get("state")).isEqualTo("running");
@@ -53,7 +53,7 @@ class FullSyncServiceTest {
             return List.of();
         });
         FullSyncService service = new FullSyncService(clinics, mock(ReconciliationSyncService.class),
-                mock(ResourceMirrorService.class), mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
+                mock(ResourceMirrorService.class), mock(SyncCursors.class), mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
 
         service.startFullSync("force");
         service.startFullSync("force");
@@ -66,19 +66,27 @@ class FullSyncServiceTest {
     }
 
     @Test
-    void scheduledResourceSyncSkipsPerPatientResources() throws Exception {
+    void cleanFullReadsRestartTheChangePullOfListedResources() throws Exception {
         ClinicRepository clinics = mock(ClinicRepository.class);
         when(clinics.findByIsActiveTrue()).thenReturn(List.of(CLINIC));
         ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
+        when(reconciliation.reconcileClinic(CLINIC)).thenReturn(new ReconciliationSyncService.ReconciliationResult(0, 0, 0, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any())).thenReturn(new ResourceMirrorService.Result("x", 0, 0, null));
-        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
+        when(mirror.sync(any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+                ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1,
+                "claims".equals(((OdResourceCatalog.Resource) inv.getArgument(1)).resource()) ? 1 : 0, null));
+        when(mirror.acceptsChangedSince(any(), any())).thenReturn(true);
+        SyncCursors cursors = mock(SyncCursors.class);
+        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, cursors, mock(JdbcTemplate.class),
+                mock(org.springframework.transaction.PlatformTransactionManager.class), true);
 
-        service.scheduledResourceSync();
+        service.startFullSync("force");
         waitUntilFinished(service);
 
-        verify(mirror, times(OdResourceCatalog.LISTS.size())).sync(any(), any(), any());
-        verifyNoInteractions(reconciliation);
+        // Every listed resource except the one that failed; per-patient resources have no cursor.
+        verify(cursors, times(OdResourceCatalog.LISTS.size() - 1)).fullPassDone(eq(CLINIC), any(), any(), eq(true));
+        verify(cursors, never()).fullPassDone(any(), argThat(r -> r != null && !r.isList()), any(), anyBoolean());
+        verify(cursors, never()).fullPassDone(any(), argThat(r -> r != null && r.resource().equals("claims")), any(), anyBoolean());
     }
 
     private static Map<String, Object> waitUntilFinished(FullSyncService service) throws InterruptedException {

@@ -17,13 +17,24 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Copies Open Dental resources that have no dedicated table into
  * {@code od_resource_records}, one JSON row per Open Dental record.
+ *
+ * <p>Built for millions of rows: each page lands in the unlogged {@code od_sync_staging}
+ * table and is merged with one statement that only writes rows whose content hash
+ * changed, so re-syncing unchanged data writes nothing. The keys seen during the run
+ * stay in staging (without their JSON) and decide which rows Open Dental no longer has.</p>
  */
 @Service
 @Slf4j
@@ -32,24 +43,63 @@ public class ResourceMirrorService {
     /** Stop calling a resource's parents after this many failures in a row (Open Dental is likely down). */
     private static final int MAX_CONSECUTIVE_FAILURES = 20;
 
-    /** Changes made in the dashboard that have not reached Open Dental yet; the sync leaves those rows alone. */
+    /** Changes made in the dashboard that have not reached Open Dental yet; the sync leaves those records alone. */
     private static final String QUEUED = """
             SELECT 1 FROM od_sync_queue q
-            WHERE q.clinic_id = od_resource_records.clinic_id
-              AND q.entity_type = 'resource:' || od_resource_records.resource
+            WHERE q.clinic_id = %1$s.clinic_id
+              AND q.entity_type = 'resource:' || %1$s.resource
+              AND q.local_id::text = %1$s.record_key
               AND q.status IN ('PENDING', 'IN_PROGRESS', 'FAILED')
             """;
 
-    private static final String UPSERT = """
-            INSERT INTO od_resource_records (clinic_id, resource, record_key, pat_num, data, synced_at)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?)
-            ON CONFLICT (clinic_id, resource, record_key)
-            DO UPDATE SET pat_num = EXCLUDED.pat_num, data = EXCLUDED.data, synced_at = EXCLUDED.synced_at
-            WHERE NOT EXISTS (""" + QUEUED + " AND q.local_id::text = od_resource_records.record_key)";
+    /** One fetched page into staging; the hash is taken over the normalised JSON. */
+    private static final String STAGE = """
+            INSERT INTO od_sync_staging (batch_id, clinic_id, resource, record_key, pat_num, od_tstamp, data, data_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, md5(?::jsonb::text))
+            ON CONFLICT DO NOTHING
+            """;
 
-    /** Removes rows Open Dental no longer returns, except dashboard changes still on their way there. */
-    private static final String PRUNE = "DELETE FROM od_resource_records WHERE clinic_id = ? AND resource = ? AND synced_at < ?"
-            + " AND record_key NOT LIKE '-%' AND NOT EXISTS (" + QUEUED + " AND q.local_id::text = od_resource_records.record_key)";
+    /**
+     * Inserts new records and updates only those whose hash changed (or that had been
+     * removed). Returns one row per record written: true when it was inserted.
+     */
+    private static final String MERGE = """
+            INSERT INTO od_resource_records AS t
+                (clinic_id, resource, record_key, pat_num, data, data_hash, od_tstamp, synced_at, seen_at)
+            SELECT s.clinic_id, s.resource, s.record_key, s.pat_num, s.data, s.data_hash, s.od_tstamp, now(), now()
+            FROM od_sync_staging s
+            WHERE s.batch_id = ? AND NOT EXISTS (%s)
+            ON CONFLICT (clinic_id, resource, record_key) DO UPDATE
+            SET pat_num = EXCLUDED.pat_num, data = EXCLUDED.data, data_hash = EXCLUDED.data_hash,
+                od_tstamp = EXCLUDED.od_tstamp, synced_at = now(), seen_at = now(), deleted_at = NULL
+            WHERE t.data_hash IS DISTINCT FROM EXCLUDED.data_hash OR t.deleted_at IS NOT NULL
+            RETURNING (xmax = 0)
+            """.formatted(QUEUED.formatted("s"));
+
+    /** After merging a page, keep only its keys under the run's batch (for pruning), without the JSON. */
+    private static final String KEEP_KEYS = """
+            INSERT INTO od_sync_staging (batch_id, clinic_id, resource, record_key, data, data_hash)
+            SELECT ?, clinic_id, resource, record_key, '{}'::jsonb, '' FROM od_sync_staging WHERE batch_id = ?
+            ON CONFLICT DO NOTHING
+            """;
+
+    private static final String DROP_BATCH = "DELETE FROM od_sync_staging WHERE batch_id = ?";
+
+    /**
+     * Removes records this run did not see, after a clean fetch. Spared: dashboard changes
+     * still on their way to Open Dental, temporary keys, and rows saved after the run began.
+     */
+    private static final String PRUNE = """
+            DELETE FROM od_resource_records r
+            WHERE r.clinic_id = ? AND r.resource = ? AND r.synced_at < ? AND r.record_key NOT LIKE '-%%'
+              AND NOT EXISTS (SELECT 1 FROM od_sync_staging k
+                              WHERE k.batch_id = ? AND k.resource = r.resource AND k.record_key = r.record_key)
+              AND NOT EXISTS (%s)
+            """.formatted(QUEUED.formatted("r"));
+
+    private static final DateTimeFormatter OD_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd[ ]['T']HH:mm:ss");
+    private static final DateTimeFormatter OD_TIMESTAMP_OUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_PAGES = 10_000;
 
     private final OpenDentalClient client;
     private final JdbcTemplate jdbc;
@@ -68,10 +118,23 @@ public class ResourceMirrorService {
         this.requestDelayMs = requestDelayMs;
     }
 
-    /** Outcome of syncing one resource for one clinic. */
-    public record Result(String resource, int records, int failedCalls, String error) {
+    /**
+     * Outcome of syncing one resource for one clinic. {@code records} is what Open Dental
+     * returned; {@code inserted}/{@code updated} what was actually written; {@code removed}
+     * what Open Dental no longer has.
+     */
+    public record Result(String resource, int records, int failedCalls, String error,
+                         int inserted, int updated, int removed, Timestamp latestChange) {
+        public Result(String resource, int records, int failedCalls, String error) {
+            this(resource, records, failedCalls, error, 0, 0, 0, null);
+        }
+
         public boolean ok() {
             return error == null && failedCalls == 0;
+        }
+
+        public int unchanged() {
+            return Math.max(0, records - inserted - updated);
         }
     }
 
@@ -80,38 +143,94 @@ public class ResourceMirrorService {
      * but only when every call for the resource succeeded.
      */
     public Result sync(Clinic clinic, Resource resource, Timestamp runStart) {
+        Counter counter = new Counter(UUID.randomUUID());
         try {
-            Counter counter = new Counter();
             if (resource.isList()) {
-                List<JsonNode> rows = fetchList(clinic, resource.path(), Map.of());
-                save(clinic, resource, rows, null, runStart);
-                counter.records = rows.size();
+                forEachPage(clinic, resource.path(), Map.of(), rows -> save(clinic, resource, rows, null, counter));
             } else {
-                syncPerParent(clinic, resource, runStart, counter);
+                syncPerParent(clinic, resource, counter);
             }
             if (counter.failedCalls == 0) {
-                Integer removed = tx.execute(status -> jdbc.update(PRUNE, clinic.getId(), resource.resource(), runStart));
-                if (removed != null && removed > 0) {
+                Integer removed = tx.execute(status -> jdbc.update(PRUNE,
+                        clinic.getId(), resource.resource(), runStart, counter.runBatch));
+                counter.removed = removed == null ? 0 : removed;
+                if (counter.removed > 0) {
                     log.info("Removed {} {} row(s) no longer in Open Dental (clinic {})",
-                            removed, resource.resource(), clinic.getClinicCode());
+                            counter.removed, resource.resource(), clinic.getClinicCode());
                 }
             }
-            return new Result(resource.resource(), counter.records, counter.failedCalls, counter.lastError);
+            return counter.result(resource.resource());
         } catch (Exception e) {
             log.warn("Syncing {} for clinic {} failed: {}", resource.resource(), clinic.getClinicCode(), e.getMessage());
-            return new Result(resource.resource(), 0, 1, e.getMessage());
+            return new Result(resource.resource(), counter.records, counter.failedCalls + 1, e.getMessage(),
+                    counter.inserted, counter.updated, 0, counter.latestChange);
+        } finally {
+            dropBatch(counter, resource);
         }
     }
 
-    private void syncPerParent(Clinic clinic, Resource resource, Timestamp runStart, Counter counter) {
+    /**
+     * Copies only the records Open Dental changed since {@code since} (its DateTStamp
+     * filter). Nothing is removed: deletes are only detected by a full {@link #sync}.
+     * Throws when Open Dental refuses the call, so the caller can back off.
+     */
+    public Result syncChanged(Clinic clinic, Resource resource, LocalDateTime since) {
+        if (!resource.isList()) {
+            throw new IllegalArgumentException(resource.resource() + " is fetched per parent and has no change filter");
+        }
+        Counter counter = new Counter(UUID.randomUUID());
+        try {
+            forEachPage(clinic, resource.path(), Map.of("DateTStamp", since.format(OD_TIMESTAMP_OUT)),
+                    rows -> save(clinic, resource, rows, null, counter));
+            return counter.result(resource.resource());
+        } finally {
+            dropBatch(counter, resource);
+        }
+    }
+
+    /**
+     * Whether Open Dental filters this resource by DateTStamp: asked for changes after a
+     * date far in the future it must answer with nothing, and the records we hold must
+     * carry a DateTStamp. An endpoint that ignores the filter returns everything.
+     */
+    public boolean acceptsChangedSince(Clinic clinic, Resource resource) {
+        if (!resource.isList()) {
+            return false;
+        }
+        Boolean stamped = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM od_resource_records WHERE clinic_id = ? AND resource = ? AND od_tstamp IS NOT NULL)",
+                Boolean.class, clinic.getId(), resource.resource());
+        if (!Boolean.TRUE.equals(stamped)) {
+            return false;
+        }
+        try {
+            return rows(get(clinic, resource.path(), Map.of("DateTStamp", "2099-01-01 00:00:00"))).isEmpty();
+        } catch (HttpClientErrorException.NotFound e) {
+            return true; // some endpoints answer "nothing found" with 404
+        } catch (HttpClientErrorException e) {
+            return false; // the filter is not accepted
+        }
+    }
+
+    private void dropBatch(Counter counter, Resource resource) {
+        try {
+            tx.executeWithoutResult(status -> jdbc.update(DROP_BATCH, counter.runBatch));
+        } catch (Exception e) {
+            log.warn("Could not clear sync staging for {}: {}", resource.resource(), e.getMessage());
+        }
+    }
+
+    private void syncPerParent(Clinic clinic, Resource resource, Counter counter) {
         int consecutiveFailures = 0;
         for (Long parentId : parentIds(clinic, resource)) {
             try {
-                List<JsonNode> rows = resource.parentInPath()
-                        ? rows(get(clinic, resource.path().replace("{id}", String.valueOf(parentId)), Map.of()))
-                        : fetchList(clinic, resource.path(), Map.of(resource.parentField(), String.valueOf(parentId)));
-                save(clinic, resource, rows, parentId, runStart);
-                counter.records += rows.size();
+                if (resource.parentInPath()) {
+                    save(clinic, resource, rows(get(clinic, resource.path().replace("{id}", String.valueOf(parentId)), Map.of())),
+                            parentId, counter);
+                } else {
+                    forEachPage(clinic, resource.path(), Map.of(resource.parentField(), String.valueOf(parentId)),
+                            rows -> save(clinic, resource, rows, parentId, counter));
+                }
                 consecutiveFailures = 0;
             } catch (HttpClientErrorException.NotFound e) {
                 consecutiveFailures = 0; // nothing for this parent
@@ -143,8 +262,30 @@ public class ResourceMirrorService {
         };
     }
 
-    private List<JsonNode> fetchList(Clinic clinic, String path, Map<String, String> params) {
-        return ReconciliationSyncService.fetchAllPages(params, pageParams -> rows(get(clinic, path, pageParams)));
+    /**
+     * Reads a list page by page (Open Dental's Offset paging) and hands each page over as
+     * it arrives, so a resource with millions of rows is never held in memory at once.
+     * Stops on an empty or short page, or when an endpoint ignores Offset and repeats itself.
+     */
+    private void forEachPage(Clinic clinic, String path, Map<String, String> params, Consumer<List<JsonNode>> page) {
+        List<JsonNode> previous = null;
+        int offset = 0;
+        for (int i = 0; i < MAX_PAGES; i++) {
+            Map<String, String> pageParams = new HashMap<>(params);
+            if (offset > 0) {
+                pageParams.put("Offset", String.valueOf(offset));
+            }
+            List<JsonNode> rows = rows(get(clinic, path, pageParams));
+            if (rows.isEmpty() || rows.equals(previous)) {
+                return;
+            }
+            page.accept(rows);
+            if (rows.size() < ReconciliationSyncService.OD_PAGE_SIZE) {
+                return;
+            }
+            offset += rows.size();
+            previous = rows;
+        }
     }
 
     private JsonNode get(Clinic clinic, String path, Map<String, String> params) {
@@ -173,21 +314,55 @@ public class ResourceMirrorService {
         return rows;
     }
 
-    private void save(Clinic clinic, Resource resource, List<JsonNode> rows, Long parentId, Timestamp runStart) {
+    /** Stages one page, merges what changed and keeps the page's keys for pruning, in one short transaction. */
+    private void save(Clinic clinic, Resource resource, List<JsonNode> rows, Long parentId, Counter counter) {
         if (rows.isEmpty()) {
             return;
         }
+        UUID page = UUID.randomUUID();
         List<Object[]> batch = new ArrayList<>(rows.size());
         for (JsonNode row : rows) {
+            String json = row.toString();
             batch.add(new Object[]{
+                    page,
                     clinic.getId(),
                     resource.resource(),
                     recordKey(resource, row, parentId),
                     patNum(resource, row, parentId),
-                    row.toString(),
-                    runStart});
+                    odTimestamp(row),
+                    json,
+                    json});
         }
-        tx.executeWithoutResult(status -> jdbc.batchUpdate(UPSERT, batch));
+        tx.executeWithoutResult(status -> {
+            jdbc.batchUpdate(STAGE, batch);
+            List<Boolean> written = jdbc.queryForList(MERGE, Boolean.class, page);
+            jdbc.update(KEEP_KEYS, counter.runBatch, page);
+            jdbc.update(DROP_BATCH, page);
+            for (Boolean inserted : written) {
+                if (Boolean.TRUE.equals(inserted)) counter.inserted++;
+                else counter.updated++;
+            }
+        });
+        counter.records += rows.size();
+        for (Object[] row : batch) {
+            Timestamp stamp = (Timestamp) row[5];
+            if (stamp != null && (counter.latestChange == null || stamp.after(counter.latestChange))) {
+                counter.latestChange = stamp;
+            }
+        }
+    }
+
+    /** Open Dental's last-change time (DateTStamp), when the record carries one. */
+    static Timestamp odTimestamp(JsonNode row) {
+        JsonNode stamp = row.get("DateTStamp");
+        if (stamp == null || !stamp.isTextual() || stamp.asText().isBlank()) {
+            return null;
+        }
+        try {
+            return Timestamp.valueOf(LocalDateTime.parse(stamp.asText().trim(), OD_TIMESTAMP));
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     static String recordKey(Resource resource, JsonNode row, Long parentId) {
@@ -217,8 +392,23 @@ public class ResourceMirrorService {
     }
 
     private static final class Counter {
+        /** Staging batch holding the keys seen during this run. */
+        final UUID runBatch;
         int records;
         int failedCalls;
         String lastError;
+        int inserted;
+        int updated;
+        int removed;
+        /** Newest DateTStamp among the records read: where the next change pull resumes. */
+        Timestamp latestChange;
+
+        Counter(UUID runBatch) {
+            this.runBatch = runBatch;
+        }
+
+        Result result(String resource) {
+            return new Result(resource, records, failedCalls, lastError, inserted, updated, removed, latestChange);
+        }
     }
 }

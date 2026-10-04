@@ -50,10 +50,11 @@ public class ResourceRecordStore {
 
     public void save(UUID clinicId, String resource, String key, ObjectNode data) {
         tx.executeWithoutResult(status -> jdbc.update("""
-                        INSERT INTO od_resource_records (clinic_id, resource, record_key, pat_num, data, synced_at)
-                        VALUES (?, ?, ?, ?, ?::jsonb, now())
+                        INSERT INTO od_resource_records (clinic_id, resource, record_key, pat_num, data, data_hash, synced_at)
+                        VALUES (?, ?, ?, ?, ?::jsonb, NULL, now())
                         ON CONFLICT (clinic_id, resource, record_key)
-                        DO UPDATE SET pat_num = EXCLUDED.pat_num, data = EXCLUDED.data, synced_at = EXCLUDED.synced_at
+                        DO UPDATE SET pat_num = EXCLUDED.pat_num, data = EXCLUDED.data, synced_at = EXCLUDED.synced_at,
+                                      data_hash = NULL, deleted_at = NULL
                         """,
                 clinicId, resource, key, patNum(data), data.toString()));
     }

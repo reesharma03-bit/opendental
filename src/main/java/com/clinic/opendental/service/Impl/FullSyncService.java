@@ -27,11 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Copies Open Dental into Supabase.
  *
  * <ul>
- *   <li><b>Resource sync</b> (every 15 min by default): every resource Open Dental lists
- *       in one paged call.</li>
  *   <li><b>Full sync</b> (nightly by default, and the Force Sync button): the tables with
  *       their own schema (patients, appointments, ...), every listed resource, and the
- *       resources Open Dental only returns per patient or per parent record.</li>
+ *       resources Open Dental only returns per patient or per parent record. It is the
+ *       only place deletes in Open Dental are noticed for resources using change pulls.</li>
+ *   <li>Between full syncs, {@link IncrementalSyncService} keeps the listed resources
+ *       fresh, asking Open Dental only for what changed.</li>
  * </ul>
  *
  * Only one of these runs at a time; the per-minute reconciliation also waits for a full
@@ -44,6 +45,7 @@ public class FullSyncService {
     private final ClinicRepository clinicRepository;
     private final ReconciliationSyncService reconciliationSyncService;
     private final ResourceMirrorService mirror;
+    private final SyncCursors cursors;
     private final JdbcTemplate jdbc;
     /** The pool runs with auto-commit off, so the sync_runs rows need a transaction to stick. */
     private final TransactionTemplate tx;
@@ -60,12 +62,14 @@ public class FullSyncService {
     public FullSyncService(ClinicRepository clinicRepository,
                            ReconciliationSyncService reconciliationSyncService,
                            ResourceMirrorService mirror,
+                           SyncCursors cursors,
                            JdbcTemplate jdbc,
                            PlatformTransactionManager transactionManager,
                            @Value("${resource-sync.enabled:true}") boolean enabled) {
         this.clinicRepository = clinicRepository;
         this.reconciliationSyncService = reconciliationSyncService;
         this.mirror = mirror;
+        this.cursors = cursors;
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(transactionManager);
         this.enabled = enabled;
@@ -98,17 +102,6 @@ public class FullSyncService {
     public Map<String, Object> status() {
         Run run = lastRun;
         return run == null ? Map.of("state", "idle") : run.snapshot();
-    }
-
-    @Scheduled(cron = "${resource-sync.cron:0 */15 * * * *}")
-    public void scheduledResourceSync() {
-        if (!enabled || !running.compareAndSet(false, true)) {
-            return;
-        }
-        Run run = new Run("scheduled", false);
-        lastRun = run;
-        // Off the scheduler thread, which also drives the Open Dental push queue.
-        executor.submit(() -> execute(run));
     }
 
     @Scheduled(cron = "${resource-sync.full-cron:0 0 2 * * *}")
@@ -163,6 +156,10 @@ public class FullSyncService {
             run.step(clinic, resource.resource());
             ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart);
             run.add(clinic, result.resource(), result.records(), result.ok() ? 0 : 1, result.error());
+            recordResource(clinic, run, result);
+            if (resource.isList() && result.ok()) {
+                updateCursor(clinic, resource, result);
+            }
             records += result.records();
             failures += result.ok() ? 0 : 1;
         }
@@ -182,6 +179,34 @@ public class FullSyncService {
         } catch (Exception e) {
             log.warn("Could not record sync run: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /** A clean full read restarts the resource's change pull from the newest change it saw. */
+    private void updateCursor(Clinic clinic, Resource resource, ResourceMirrorService.Result result) {
+        try {
+            cursors.fullPassDone(clinic, resource, result, mirror.acceptsChangedSince(clinic, resource));
+        } catch (Exception e) {
+            log.warn("Could not update the sync cursor of {}: {}", resource.resource(), e.getMessage());
+        }
+    }
+
+    /** One row per resource: what Open Dental returned and what was actually written. */
+    private void recordResource(Clinic clinic, Run run, ResourceMirrorService.Result result) {
+        try {
+            tx.executeWithoutResult(status -> jdbc.update("""
+                            INSERT INTO sync_runs (id, clinic_id, sync_type, entity_type, resource, mode, status,
+                                total_found, total_synced, total_failed, rows_fetched, rows_inserted, rows_updated,
+                                rows_unchanged, rows_deleted, error_message, started_at, completed_at)
+                            VALUES (?, ?, 'resource', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
+                            """,
+                    UUID.randomUUID(), clinic.getId(), result.resource(), result.resource(),
+                    run.full ? "full" : "resources", result.ok() ? "completed" : "failed",
+                    result.records(), result.inserted() + result.updated(), result.ok() ? 0 : 1,
+                    result.records(), result.inserted(), result.updated(), result.unchanged(), result.removed(),
+                    result.error() == null ? "" : result.error()));
+        } catch (Exception e) {
+            log.warn("Could not record sync of {}: {}", result.resource(), e.getMessage());
         }
     }
 

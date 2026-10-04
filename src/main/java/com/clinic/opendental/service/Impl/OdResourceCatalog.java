@@ -238,6 +238,44 @@ final class OdResourceCatalog {
             "appointments", "AptNum",
             "procedurelogs", "ProcNum");
 
+    /**
+     * How fresh a listed resource must be. A resource Open Dental can filter by DateTStamp
+     * is asked for its changes every {@code changesEvery}; one it cannot is re-read in
+     * full every {@code refreshEvery}. All of them are also re-read in full nightly.
+     */
+    enum Tier {
+        HOT(java.time.Duration.ofMinutes(2), java.time.Duration.ofMinutes(15)),
+        WARM(java.time.Duration.ofMinutes(15), java.time.Duration.ofHours(1)),
+        COLD(java.time.Duration.ofHours(24), java.time.Duration.ofHours(24));
+
+        final java.time.Duration changesEvery;
+        final java.time.Duration refreshEvery;
+
+        Tier(java.time.Duration changesEvery, java.time.Duration refreshEvery) {
+            this.changesEvery = changesEvery;
+            this.refreshEvery = refreshEvery;
+        }
+
+        String dbName() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    /** Schedule and front desk data. */
+    private static final java.util.Set<String> HOT = java.util.Set.of(
+            "operatories", "schedules", "scheduleops", "providers", "asapcomms", "patfields");
+
+    /** Setup lists that rarely change. */
+    private static final java.util.Set<String> COLD = java.util.Set.of(
+            "allergydefs", "diseasedefs", "medications", "patfielddefs", "pharmacies", "recalltypes",
+            "appointmenttypes", "apptfielddefs", "autonotecontrols", "autonotes", "codegroups", "procedurecodes",
+            "carriers", "claimforms", "covcats", "covspans", "discountplans", "fees", "feescheds", "subscriptions");
+
+    /** Everything else (clinical records, insurance, billing) is WARM. */
+    static Tier tier(String resource) {
+        return HOT.contains(resource) ? Tier.HOT : COLD.contains(resource) ? Tier.COLD : Tier.WARM;
+    }
+
     /** Queue entity type for a mirrored resource, e.g. {@code resource:allergies}. */
     static String entityType(String resource) {
         return "resource:" + resource;

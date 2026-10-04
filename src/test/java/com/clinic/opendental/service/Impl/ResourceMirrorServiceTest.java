@@ -59,12 +59,12 @@ class ResourceMirrorServiceTest {
         assertThat(result.records()).isEqualTo(130);
         assertThat(result.ok()).isTrue();
         verify(client, times(2)).getRaw(eq("/carriers"), anyMap(), eq("http://od"), eq("key"));
-        List<Object[]> saved = savedRows(1);
+        List<Object[]> saved = savedRows(2); // saved page by page
         assertThat(saved).hasSize(130);
-        assertThat(saved.get(0)[2]).isEqualTo("1");
-        assertThat(saved.get(129)[2]).isEqualTo("130");
+        assertThat(saved.get(0)[3]).isEqualTo("1");
+        assertThat(saved.get(129)[3]).isEqualTo("130");
         // Clean fetch: rows Open Dental no longer has are removed.
-        verify(jdbc).update(startsWith("DELETE FROM od_resource_records"), eq(CLINIC.getId()), eq("carriers"), eq(RUN_START));
+        verify(jdbc).update(startsWith("DELETE FROM od_resource_records"), eq(CLINIC.getId()), eq("carriers"), eq(RUN_START), any(UUID.class));
     }
 
     @Test
@@ -87,7 +87,7 @@ class ResourceMirrorServiceTest {
 
         assertThat(result.ok()).isFalse();
         assertThat(result.error()).contains("timeout");
-        verify(jdbc, never()).update(startsWith("DELETE"), any(), any(), any());
+        verify(jdbc, never()).update(startsWith("DELETE FROM od_resource_records"), any(), any(), any(), any());
     }
 
     @Test
@@ -105,8 +105,8 @@ class ResourceMirrorServiceTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.records()).isEqualTo(1);
         Object[] row = savedRows(1).get(0);
-        assertThat(row[2]).isEqualTo("70");
-        assertThat(row[3]).isEqualTo(7L); // pat_num from the patient queried
+        assertThat(row[3]).isEqualTo("70");
+        assertThat(row[4]).isEqualTo(7L); // pat_num from the patient queried
     }
 
     @Test
@@ -122,7 +122,7 @@ class ResourceMirrorServiceTest {
 
         assertThat(result.ok()).isFalse();
         assertThat(result.failedCalls()).isEqualTo(1);
-        verify(jdbc, never()).update(startsWith("DELETE"), any(), any(), any());
+        verify(jdbc, never()).update(startsWith("DELETE FROM od_resource_records"), any(), any(), any(), any());
     }
 
     @Test
@@ -165,7 +165,7 @@ class ResourceMirrorServiceTest {
     @SuppressWarnings("unchecked")
     private List<Object[]> savedRows(int batches) {
         ArgumentCaptor<List<Object[]>> captor = ArgumentCaptor.forClass(List.class);
-        verify(jdbc, times(batches)).batchUpdate(startsWith("INSERT INTO od_resource_records"), captor.capture());
+        verify(jdbc, times(batches)).batchUpdate(startsWith("INSERT INTO od_sync_staging"), captor.capture());
         List<Object[]> all = new ArrayList<>();
         captor.getAllValues().forEach(all::addAll);
         return all;

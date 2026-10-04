@@ -36,6 +36,7 @@ spring:
       leak-detection-threshold: 60000
       data-source-properties:
         prepareThreshold: 0
+        reWriteBatchedInserts: true
         ApplicationName: open-dental-api
 
   jpa:
@@ -100,7 +101,9 @@ assistant:
 #            (same as the Force Sync button).
 resource-sync:
   enabled: ${RESOURCE_SYNC_ENABLED:true}
-  cron: ${RESOURCE_SYNC_CRON:0 */15 * * * *}
+  # Every tick, resources that are due are pulled: changes only where Open Dental can
+  # filter by DateTStamp (every 2 min / 15 min / daily by tier), else a full re-read.
+  tick-ms: ${RESOURCE_SYNC_TICK_MS:60000}
   full-cron: ${RESOURCE_SYNC_FULL_CRON:0 0 2 * * *}
   request-delay-ms: ${RESOURCE_SYNC_REQUEST_DELAY_MS:0}
 
