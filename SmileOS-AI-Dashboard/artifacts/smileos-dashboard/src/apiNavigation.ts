@@ -10,31 +10,47 @@ export const apiNavigationGroups = [
     ],
   },
   {
+    label: 'Communication & Referrals',
+    resources: ['Commlogs', 'Employers', 'RefAttaches', 'Referrals'],
+  },
+  {
     label: 'Scheduling',
     resources: [
       'Appointments', 'AppointmentTypes', 'ApptFields', 'ApptFieldDefs',
       'AsapComms', 'ClockEvents', 'HistAppointments', 'Operatories',
-      'ScheduleOps', 'Schedules',
+      'Providers', 'ScheduleOps', 'Schedules',
     ],
   },
   {
     label: 'Clinical Care',
     resources: [
       'AutoNoteControls', 'AutoNotes', 'ChartModules', 'CodeGroups',
+      'LabCases', 'Laboratories', 'LabTurnarounds',
       'PerioExams', 'PerioMeasures', 'ProcedureCodes', 'ProcedureLogs',
       'ProcNotes', 'ProcTPs', 'ToothInitials', 'TreatPlanAttaches',
       'TreatPlans',
     ],
   },
   {
+    label: 'Forms',
+    resources: ['Sheets', 'SheetFields', 'SheetDefs', 'SheetFieldDefs'],
+  },
+  {
     label: 'Insurance & Billing',
     resources: [
-      'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
+      'Adjustments', 'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
       'ClaimProcs', 'Claims', 'ClaimTrackings', 'CovCats', 'CovSpans',
-      'Deposits', 'DiscountPlans', 'DiscountPlanSubs', 'EobAttaches', 'Fees',
-      'FeeScheds', 'InsPlans', 'InsSubs', 'InsVerifies', 'Payments',
+      'Deposits', 'DiscountPlans', 'DiscountPlanSubs', 'EobAttaches', 'Etranss',
+      'Fees', 'FeeScheds', 'InsPlans', 'InsSubs', 'InsVerifies', 'Payments',
       'PayPlanCharges', 'PayPlanLinks', 'PayPlans', 'PaySplits',
       'Statements', 'SubstitutionLinks',
+    ],
+  },
+  {
+    label: 'Tasks & Practice Setup',
+    resources: [
+      'Definitions', 'Employees', 'QuickPasteCats', 'QuickPasteNotes',
+      'TaskLists', 'TaskNotes', 'Tasks',
     ],
   },
 ] as const;
