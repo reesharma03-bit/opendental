@@ -25,8 +25,16 @@ final class OdResourceCatalog {
      * @param parent      null for a plain list, otherwise where the ids to query by come from:
      *                    {@link #PATIENTS}, {@link #APPOINTMENTS} or a mirrored resource
      * @param parentField query parameter (and field of the parent rows) carrying the parent id
+     * @param passes      fixed query parameters of a full read; one paged read per entry. Some
+     *                    endpoints leave records out by default (hidden definitions, archived
+     *                    task lists, tasks older than 14 days), so they are asked explicitly.
      */
-    record Resource(String resource, String path, String keyField, String parent, String parentField) {
+    record Resource(String resource, String path, String keyField, String parent, String parentField,
+                    List<Map<String, String>> passes) {
+
+        Resource(String resource, String path, String keyField, String parent, String parentField) {
+            this(resource, path, keyField, parent, parentField, List.of(Map.of()));
+        }
 
         boolean isList() {
             return parent == null;
@@ -40,6 +48,11 @@ final class OdResourceCatalog {
 
     private static Resource list(String resource, String keyField) {
         return new Resource(resource, "/" + resource, keyField, null, null);
+    }
+
+    @SafeVarargs
+    private static Resource list(String resource, String keyField, Map<String, String>... passes) {
+        return new Resource(resource, "/" + resource, keyField, null, null, List.of(passes));
     }
 
     private static Resource perParent(String resource, String path, String keyField, String parent, String parentField) {
@@ -106,7 +119,30 @@ final class OdResourceCatalog {
             // Practice setup used by the dashboard screens
             list("providers", "ProvNum"),
             // Open Dental webhook subscriptions (where Open Dental sends change events)
-            list("subscriptions", "SubscriptionNum"));
+            list("subscriptions", "SubscriptionNum"),
+            // Communication and referrals. Commlogs lists without PatNum from Open Dental 25.1.13.
+            list("commlogs", "CommlogNum"),
+            list("referrals", "ReferralNum"),
+            list("refattaches", "RefAttachNum"),
+            // Lookups: hidden definitions are left out unless asked for
+            list("definitions", "DefNum", Map.of("includeHidden", "true")),
+            // Labs
+            list("laboratories", "LaboratoryNum"),
+            list("labturnarounds", "LabTurnaroundNum"),
+            list("labcases", "LabCaseNum"),
+            // Forms. Sheet fields list without SheetNum from Open Dental 25.2.3.
+            list("sheetdefs", "SheetDefNum"),
+            list("sheetfielddefs", "SheetFieldDefNum"),
+            list("sheetfields", "SheetFieldNum"),
+            // Tasks: task lists default to Active only; tasks to the last 14 days unless a start is given
+            list("tasklists", "TaskListNum", Map.of("TaskListStatus", "Active"), Map.of("TaskListStatus", "Archived")),
+            list("tasks", "TaskNum", Map.of("DateTimeOriginal", "1900-01-01 00:00:00")),
+            list("tasknotes", "TaskNoteNum"),
+            // Staff, employers and note templates
+            list("employees", "EmployeeNum"),
+            list("employers", "EmployerNum"),
+            list("quickpastecats", "QuickPasteCatNum"),
+            list("quickpastenotes", "QuickPasteNoteNum"));
 
     /**
      * Resources Open Dental only returns per patient or per parent record: one call per
@@ -128,7 +164,11 @@ final class OdResourceCatalog {
             perParent("treatplanattaches", "/treatplanattaches", "TreatPlanAttachNum", "treatplans", "TreatPlanNum"),
             perParent("eobattaches", "/eobattaches", "EobAttachNum", "claimpayments", "ClaimPaymentNum"),
             perParent("payplancharges", "/payplancharges", "PayPlanChargeNum", "payplans", "PayPlanNum"),
-            perParent("substitutionlinks", "/substitutionlinks", "SubstitutionLinkNum", "insplans", "PlanNum"));
+            perParent("substitutionlinks", "/substitutionlinks", "SubstitutionLinkNum", "insplans", "PlanNum"),
+            // Patient forms and electronic claim transmissions: Open Dental lists these per patient only
+            perParent("sheets", "/sheets", "SheetNum", PATIENTS, "PatNum"),
+            perParent("etranss", "/etranss", "EtransNum", PATIENTS, "PatNum"),
+            perParent("adjustments", "/adjustments", "AdjNum", PATIENTS, "PatNum"));
 
     /** Every mirrored resource, by name. */
     static Resource find(String resource) {
@@ -269,7 +309,9 @@ final class OdResourceCatalog {
     private static final java.util.Set<String> COLD = java.util.Set.of(
             "allergydefs", "diseasedefs", "medications", "patfielddefs", "pharmacies", "recalltypes",
             "appointmenttypes", "apptfielddefs", "autonotecontrols", "autonotes", "codegroups", "procedurecodes",
-            "carriers", "claimforms", "covcats", "covspans", "discountplans", "fees", "feescheds", "subscriptions");
+            "carriers", "claimforms", "covcats", "covspans", "discountplans", "fees", "feescheds", "subscriptions",
+            "definitions", "referrals", "laboratories", "labturnarounds", "sheetdefs", "sheetfielddefs",
+            "employees", "employers", "quickpastecats", "quickpastenotes");
 
     /** Everything else (clinical records, insurance, billing) is WARM. */
     static Tier tier(String resource) {

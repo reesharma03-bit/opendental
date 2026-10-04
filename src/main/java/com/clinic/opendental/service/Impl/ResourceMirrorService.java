@@ -146,7 +146,9 @@ public class ResourceMirrorService {
         Counter counter = new Counter(UUID.randomUUID());
         try {
             if (resource.isList()) {
-                forEachPage(clinic, resource.path(), Map.of(), rows -> save(clinic, resource, rows, null, counter));
+                for (Map<String, String> pass : resource.passes()) {
+                    forEachPage(clinic, resource.path(), pass, rows -> save(clinic, resource, rows, null, counter));
+                }
             } else {
                 syncPerParent(clinic, resource, counter);
             }
@@ -180,8 +182,10 @@ public class ResourceMirrorService {
         }
         Counter counter = new Counter(UUID.randomUUID());
         try {
-            forEachPage(clinic, resource.path(), Map.of("DateTStamp", since.format(OD_TIMESTAMP_OUT)),
-                    rows -> save(clinic, resource, rows, null, counter));
+            for (Map<String, String> pass : resource.passes()) {
+                forEachPage(clinic, resource.path(), with(pass, "DateTStamp", since.format(OD_TIMESTAMP_OUT)),
+                        rows -> save(clinic, resource, rows, null, counter));
+            }
             return counter.result(resource.resource());
         } finally {
             dropBatch(counter, resource);
@@ -203,13 +207,24 @@ public class ResourceMirrorService {
         if (!Boolean.TRUE.equals(stamped)) {
             return false;
         }
-        try {
-            return rows(get(clinic, resource.path(), Map.of("DateTStamp", "2099-01-01 00:00:00"))).isEmpty();
-        } catch (HttpClientErrorException.NotFound e) {
-            return true; // some endpoints answer "nothing found" with 404
-        } catch (HttpClientErrorException e) {
-            return false; // the filter is not accepted
+        for (Map<String, String> pass : resource.passes()) {
+            try {
+                if (!rows(get(clinic, resource.path(), with(pass, "DateTStamp", "2099-01-01 00:00:00"))).isEmpty()) {
+                    return false; // the filter is ignored
+                }
+            } catch (HttpClientErrorException.NotFound e) {
+                // some endpoints answer "nothing found" with 404
+            } catch (HttpClientErrorException e) {
+                return false; // the filter is not accepted
+            }
         }
+        return true;
+    }
+
+    private static Map<String, String> with(Map<String, String> params, String name, String value) {
+        Map<String, String> all = new HashMap<>(params);
+        all.put(name, value);
+        return all;
     }
 
     private void dropBatch(Counter counter, Resource resource) {

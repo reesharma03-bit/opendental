@@ -147,6 +147,28 @@ class ResourceMirrorServiceTest {
     }
 
     @Test
+    void fixedParametersAskForRecordsOpenDentalHidesByDefault() {
+        Resource taskLists = OdResourceCatalog.LISTS.stream().filter(r -> r.resource().equals("tasklists")).findFirst().orElseThrow();
+        when(client.getRaw(eq("/tasklists"), eq(Map.of("TaskListStatus", "Active")), any(), any())).thenReturn(rows("TaskListNum", 1, 2));
+        when(client.getRaw(eq("/tasklists"), eq(Map.of("TaskListStatus", "Archived")), any(), any())).thenReturn(rows("TaskListNum", 3, 1));
+
+        ResourceMirrorService.Result result = service.sync(CLINIC, taskLists, RUN_START);
+
+        assertThat(result.records()).isEqualTo(3);
+        Resource definitions = OdResourceCatalog.LISTS.stream().filter(r -> r.resource().equals("definitions")).findFirst().orElseThrow();
+        assertThat(definitions.passes()).containsExactly(Map.of("includeHidden", "true"));
+        Resource tasks = OdResourceCatalog.LISTS.stream().filter(r -> r.resource().equals("tasks")).findFirst().orElseThrow();
+        assertThat(tasks.passes().get(0)).containsKey("DateTimeOriginal");
+    }
+
+    @Test
+    void everySyncedResourceHasAPermissionArea() {
+        com.clinic.opendental.security.PermissionResolver resolver = new com.clinic.opendental.security.PermissionResolver();
+        OdResourceCatalog.LISTS.forEach(r -> assertThat(resolver.area(r.resource())).as(r.resource()).isNotNull());
+        OdResourceCatalog.PER_PARENT.forEach(r -> assertThat(resolver.area(r.resource())).as(r.resource()).isNotNull());
+    }
+
+    @Test
     void catalogResourcesAreUniqueAndParentsComeFirst() {
         List<String> seen = new ArrayList<>();
         for (Resource r : OdResourceCatalog.LISTS) {

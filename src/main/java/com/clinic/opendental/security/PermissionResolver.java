@@ -48,19 +48,23 @@ public class PermissionResolver {
 
     static {
         put(Area.PATIENTS, "patients", "patientnotes", "patientraces", "ehrpatients", "familymodules", "guardians",
-                "patfields", "patfielddefs", "popups", "patrestrictions");
+                "patfields", "patfielddefs", "popups", "patrestrictions", "commlogs", "referrals", "refattaches",
+                "definitions", "employers", "sheets", "sheetfields", "sheetdefs", "sheetfielddefs",
+                "tasks", "tasklists", "tasknotes", "quickpastecats", "quickpastenotes");
         put(Area.APPOINTMENTS, "appointments", "appointmenttypes", "apptfields", "apptfielddefs", "asapcomms",
                 "histappointments", "schedules", "scheduleops", "operatories", "providers", "clockevents",
                 "recalls", "recalltypes");
         put(Area.CLINICAL, "allergies", "allergydefs", "diseases", "diseasedefs", "medications", "medicationpats",
                 "rxpats", "vitalsigns", "pharmacies", "procedurelogs", "procedurecodes", "procnotes", "proctps",
                 "treatplans", "treatplanattaches", "perioexams", "periomeasures", "toothinitials", "autonotes",
-                "autonotecontrols", "codegroups", "chartmodules", "documents");
+                "autonotecontrols", "codegroups", "chartmodules", "documents", "labcases", "laboratories",
+                "labturnarounds");
         put(Area.BILLING, "benefits", "carriers", "claimforms", "claimpayments", "claimprocs", "claims",
                 "claimtrackings", "covcats", "covspans", "deposits", "discountplans", "discountplansubs", "eobattaches",
                 "fees", "feescheds", "insplans", "inssubs", "insverifies", "payments", "payplancharges", "payplanlinks",
-                "payplans", "paysplits", "statements", "substitutionlinks", "patplans");
-        put(Area.SYNC, "subscriptions");
+                "payplans", "paysplits", "statements", "substitutionlinks", "patplans", "etranss", "adjustments");
+        // Staff records: admins only
+        put(Area.SYNC, "subscriptions", "employees");
     }
 
     private static void put(Area area, String... resources) {
