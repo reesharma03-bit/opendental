@@ -28,7 +28,7 @@ class FullSyncServiceTest {
         when(reconciliation.reconcileClinic(CLINIC))
                 .thenReturn(new ReconciliationSyncService.ReconciliationResult(12, 0, 3, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 2, 0, null));
         FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), true);
 
@@ -41,7 +41,7 @@ class FullSyncServiceTest {
         assertThat(done.get("done")).isEqualTo(resources + 1);
         assertThat(done.get("records")).isEqualTo(12 + resources * 2);
         verify(reconciliation).reconcileClinic(CLINIC);
-        verify(mirror, times(resources)).sync(eq(CLINIC), any(), any());
+        verify(mirror, times(resources)).sync(eq(CLINIC), any(), any(), eq(ResourceMirrorService.Scope.ALL));
     }
 
     @Test
@@ -72,7 +72,7 @@ class FullSyncServiceTest {
         ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
         when(reconciliation.reconcileClinic(CLINIC)).thenReturn(new ReconciliationSyncService.ReconciliationResult(0, 0, 0, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1,
                 "claims".equals(((OdResourceCatalog.Resource) inv.getArgument(1)).resource()) ? 1 : 0, null));
         when(mirror.acceptsChangedSince(any(), any())).thenReturn(true);

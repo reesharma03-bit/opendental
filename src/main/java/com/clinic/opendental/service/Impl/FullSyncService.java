@@ -154,7 +154,11 @@ public class FullSyncService {
         }
         for (Resource resource : resources) {
             run.step(clinic, resource.resource());
-            ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart);
+            // Nightly: per-patient resources for recently active patients plus a rolling seventh of
+            // the rest (Open Dental's ~1 call/second can't cover every patient every night).
+            // Force Sync: everyone.
+            ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart,
+                    "nightly".equals(run.trigger) ? ResourceMirrorService.Scope.RECENT : ResourceMirrorService.Scope.ALL);
             run.add(clinic, result.resource(), result.records(), result.ok() ? 0 : 1, result.error());
             recordResource(clinic, run, result);
             if (resource.isList() && result.ok()) {

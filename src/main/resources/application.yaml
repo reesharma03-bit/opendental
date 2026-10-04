@@ -5,12 +5,22 @@ opendental:
   #   ODFHIR <DeveloperKey>/<CustomerKey>
   # Leave empty only when the target Open Dental instance does not require a key.
   api-key: ${OPENDENTAL_API_KEY:}
+  # Open Dental allows 1 request per second per API key, or 1 per 5 seconds when the key
+  # only has read access (ApiReadAll): set 5000 for such keys. Shared by every call.
+  min-request-interval-ms: ${OPENDENTAL_MIN_REQUEST_INTERVAL_MS:1000}
   clinics:
     default-clinic-code: ${DEFAULT_CLINIC_CODE:CLINIC_A}
 
 spring:
   application:
     name: open-dental-api
+
+  # Background jobs (dashboard changes to Open Dental, change pulls, scheduled syncs) each
+  # get a thread, so a long sync never delays pushing a dashboard change.
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:4}
 
   jackson:
     property-naming-strategy: SNAKE_CASE

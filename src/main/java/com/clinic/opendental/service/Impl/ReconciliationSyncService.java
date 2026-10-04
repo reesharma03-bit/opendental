@@ -289,9 +289,18 @@ public class ReconciliationSyncService {
     }
 
     private Stats reconcilePatients(Clinic clinic) {
+        return reconcilePatients(clinic, null);
+    }
+
+    /**
+     * Full read when {@code changed} is null; otherwise only those patients (a change pull):
+     * then only their stored rows are loaded and nothing is reported stale.
+     */
+    Stats reconcilePatients(Clinic clinic, List<PatientResponse> changed) {
         Stats stats = new Stats();
         try {
-            List<PatientResponse> dtos = fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
+            List<PatientResponse> dtos = changed != null ? changed
+                    : fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
             Map<Long, PatientResponse> byId = new HashMap<>();
             for (PatientResponse dto : dtos) {
                 if (byId.put(dto.getPatNum(), dto) != null) {
@@ -300,7 +309,10 @@ public class ReconciliationSyncService {
                             dto.getPatNum(), clinic.getClinicCode());
                 }
             }
-            List<Patient> existing = patientRepository.findByIdClinicId(clinic.getId());
+            List<Patient> existing = changed != null
+                    ? patientRepository.findAllById(dtos.stream().filter(d -> d.getPatNum() != null)
+                            .map(d -> new PatientId(clinic.getId(), d.getPatNum())).toList())
+                    : patientRepository.findByIdClinicId(clinic.getId());
             Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PATIENT);
             Map<Long, Patient> existingById = new HashMap<>();
             for (Patient p : existing) {
@@ -350,7 +362,7 @@ public class ReconciliationSyncService {
                             patNum, clinic.getClinicCode(), e.getMessage());
                 }
             }
-            for (Patient p : existing) {
+            for (Patient p : changed != null ? List.<Patient>of() : existing) {
                 if (!byId.containsKey(p.getId().getPatNum())) {
                     stats.stale++;
                     log.warn("Stale patient PatNum={} present in Supabase but missing from Open Dental (clinic {})",
@@ -441,9 +453,16 @@ public class ReconciliationSyncService {
     }
 
     private Stats reconcileAppointments(Clinic clinic) {
+        return reconcileAppointments(clinic, Map.of());
+    }
+
+    /** Full read with no filter; with one (DateTStamp) a change pull: see {@link #reconcilePatients(Clinic, List)}. */
+    Stats reconcileAppointments(Clinic clinic, Map<String, String> filter) {
         Stats stats = new Stats();
+        boolean changesOnly = !filter.isEmpty();
         try {
-            List<AppointmentResponse> dtos = fetchAllPages(Map.of(), params -> client.getAppointments(params, clinic.getBaseUrl(), clinic.getApiKey()));
+            List<AppointmentResponse> dtos = fetchAllPages(filter, params -> client.getAppointments(params, clinic.getBaseUrl(), clinic.getApiKey()));
+            dtos.forEach(d -> stats.seen(d.getDateTStamp()));
             Map<Long, AppointmentResponse> byId = new HashMap<>();
             for (AppointmentResponse dto : dtos) {
                 if (byId.put(dto.getAptNum(), dto) != null) {
@@ -452,7 +471,10 @@ public class ReconciliationSyncService {
                             dto.getAptNum(), clinic.getClinicCode());
                 }
             }
-            List<Appointment> existing = appointmentRepository.findByIdClinicId(clinic.getId());
+            List<Appointment> existing = changesOnly
+                    ? appointmentRepository.findAllById(dtos.stream().filter(d -> d.getAptNum() != null)
+                            .map(d -> new AppointmentId(clinic.getId(), d.getAptNum())).toList())
+                    : appointmentRepository.findByIdClinicId(clinic.getId());
             Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.APPOINTMENT);
             Map<Long, Appointment> existingById = new HashMap<>();
             for (Appointment a : existing) {
@@ -498,7 +520,7 @@ public class ReconciliationSyncService {
                             aptNum, clinic.getClinicCode(), e.getMessage());
                 }
             }
-            for (Appointment a : existing) {
+            for (Appointment a : changesOnly ? List.<Appointment>of() : existing) {
                 if (!byId.containsKey(a.getId().getAptNum())) {
                     stats.stale++;
                     log.warn("Stale appointment AptNum={} present in Supabase but missing from Open Dental (clinic {})",
@@ -618,9 +640,16 @@ public class ReconciliationSyncService {
     }
 
     private Stats reconcileProcedureLogs(Clinic clinic) {
+        return reconcileProcedureLogs(clinic, Map.of());
+    }
+
+    /** Full read with no filter; with one (DateTStamp) a change pull: see {@link #reconcilePatients(Clinic, List)}. */
+    Stats reconcileProcedureLogs(Clinic clinic, Map<String, String> filter) {
         Stats stats = new Stats();
+        boolean changesOnly = !filter.isEmpty();
         try {
-            List<ProcedureLogResponse> dtos = fetchAllPages(Map.of(), params -> client.getProcedureLogs(params, clinic.getBaseUrl(), clinic.getApiKey()));
+            List<ProcedureLogResponse> dtos = fetchAllPages(filter, params -> client.getProcedureLogs(params, clinic.getBaseUrl(), clinic.getApiKey()));
+            dtos.forEach(d -> stats.seen(d.getDateTStamp()));
             Map<Long, ProcedureLogResponse> byId = new HashMap<>();
             for (ProcedureLogResponse dto : dtos) {
                 if (byId.put(dto.getProcNum(), dto) != null) {
@@ -629,7 +658,10 @@ public class ReconciliationSyncService {
                             dto.getProcNum(), clinic.getClinicCode());
                 }
             }
-            List<ProcedureLog> existing = procedureLogRepository.findByIdClinicId(clinic.getId());
+            List<ProcedureLog> existing = changesOnly
+                    ? procedureLogRepository.findAllById(dtos.stream().filter(d -> d.getProcNum() != null)
+                            .map(d -> new ProcedureLogId(clinic.getId(), d.getProcNum())).toList())
+                    : procedureLogRepository.findByIdClinicId(clinic.getId());
             Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PROCEDURE_LOG);
             Map<Long, ProcedureLog> existingById = new HashMap<>();
             for (ProcedureLog pl : existing) {
@@ -675,7 +707,7 @@ public class ReconciliationSyncService {
                             procNum, clinic.getClinicCode(), e.getMessage());
                 }
             }
-            for (ProcedureLog pl : existing) {
+            for (ProcedureLog pl : changesOnly ? List.<ProcedureLog>of() : existing) {
                 if (!byId.containsKey(pl.getId().getProcNum())) {
                     stats.stale++;
                     log.warn("Stale procedurelog ProcNum={} present in Supabase but missing from Open Dental (clinic {})",
@@ -692,7 +724,7 @@ public class ReconciliationSyncService {
         return stats;
     }
 
-private Stats reconcileProviders(Clinic clinic) {
+    Stats reconcileProviders(Clinic clinic) {
         Stats stats = new Stats();
         try {
             List<ProviderResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey()));
@@ -763,7 +795,7 @@ private Stats reconcileProviders(Clinic clinic) {
         }
         return stats;
     }
-private Stats reconcileOperatories(Clinic clinic) {
+    Stats reconcileOperatories(Clinic clinic) {
         Stats stats = new Stats();
         try {
             List<OperatoryResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getOperatories(params, clinic.getBaseUrl(), clinic.getApiKey()));
@@ -839,7 +871,7 @@ private Stats reconcileOperatories(Clinic clinic) {
      * any schedule row present in Supabase but missing from Open Dental's current
      * snapshot is soft-deleted (is_deleted=true, deleted_at).
      */
-    private Stats reconcileSchedules(Clinic clinic) {
+    Stats reconcileSchedules(Clinic clinic) {
         Stats stats = new Stats();
         try {
             List<ScheduleResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getSchedules(params, clinic.getBaseUrl(), clinic.getApiKey()));
@@ -1101,13 +1133,22 @@ private Stats reconcileOperatories(Clinic clinic) {
         return all;
     }
 
-    private static final class Stats {
+    static final class Stats {
         int inserted;
         int updated;
         int unchanged;
         int stale;
         int duplicates;
         int failed;
+        /** Newest Open Dental DateTStamp among the records read ("yyyy-MM-dd HH:mm:ss" sorts as text). */
+        String latestStamp;
+
+        void seen(String dateTStamp) {
+            if (dateTStamp != null && !dateTStamp.isBlank() && !dateTStamp.startsWith("0001")
+                    && (latestStamp == null || dateTStamp.compareTo(latestStamp) > 0)) {
+                latestStamp = dateTStamp;
+            }
+        }
 
         void add(Stats other) {
             inserted += other.inserted;

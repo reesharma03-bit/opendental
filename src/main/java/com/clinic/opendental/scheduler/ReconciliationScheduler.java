@@ -1,76 +1,50 @@
 package com.clinic.opendental.scheduler;
 
+import com.clinic.opendental.model.Clinic;
+import com.clinic.opendental.repository.ClinicRepository;
+import com.clinic.opendental.service.Impl.CoreChangeSync;
+import com.clinic.opendental.service.Impl.FullSyncService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.clinic.opendental.service.Impl.FullSyncService;
-import com.clinic.opendental.service.Impl.ReconciliationSyncService;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
 /**
- * Scheduled Reconciliation Job.
+ * Every minute (by default): catch up patients, appointments and procedure logs with what
+ * changed in Open Dental since the last pull ({@link CoreChangeSync}).
  *
- * Even with webhooks, a scheduled job runs every night (or every few hours)
- * to catch any events that might have been missed due to temporary outages.
+ * <p>This used to re-read everything, including every patient's documents, each minute,
+ * which a practice of any size can't do within Open Dental's ~1 call per second. Full
+ * re-reads now happen in the nightly full sync and the Force Sync button.</p>
  *
- * Flow:
- *   2:00 AM
- *       │
- *       ▼
- *   GET patients modified today
- *       │
- *       ▼
- *   Compare with Supabase
- *       │
- *       ▼
- *   Fix any missing records
- *
- * Default cron: "0 * * * * *"  → every minute
- * Override with env var: RECONCILIATION_CRON
+ * Override the interval with RECONCILIATION_CRON; turn off with RECONCILIATION_ENABLED=false.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class ReconciliationScheduler {
 
-    private final ReconciliationSyncService reconciliationSyncService;
+    private final ClinicRepository clinicRepository;
+    private final CoreChangeSync coreChangeSync;
     private final FullSyncService fullSyncService;
 
     @Value("${reconciliation.enabled:true}")
     private boolean enabled;
 
-    /**
-     * Run reconciliation.
-     *
-     * Default: every minute.
-     * Configurable via `reconciliation.cron` in application.yaml or
-     * RECONCILIATION_CRON environment variable.
-     */
     @Scheduled(cron = "${reconciliation.cron:0 * * * * *}")
     public void reconcileAll() {
-        if (!enabled) {
-            log.info("Scheduled reconciliation is disabled. Skipping.");
+        if (!enabled || fullSyncService.isRunning()) {
             return;
         }
-        if (fullSyncService.isRunning()) {
-            log.info("Full Open Dental sync in progress; skipping this reconciliation.");
-            return;
-        }
-
-        log.info("=== Scheduled Reconciliation Started ===");
         long start = System.currentTimeMillis();
-
-        try {
-            ReconciliationSyncService.ReconciliationResult result = reconciliationSyncService.reconcileAll();
-            log.info("=== Scheduled Reconciliation Complete: {}", result.message());
-        } catch (Exception e) {
-            log.error("Scheduled reconciliation failed: {}", e.getMessage(), e);
+        for (Clinic clinic : clinicRepository.findByIsActiveTrue()) {
+            try {
+                coreChangeSync.pull(clinic);
+            } catch (Exception e) {
+                log.warn("Change pull for clinic {} failed: {}", clinic.getClinicCode(), e.getMessage());
+            }
         }
-
-        long duration = System.currentTimeMillis() - start;
-        log.info("Scheduled reconciliation took {} ms", duration);
+        log.debug("Change pull took {} ms", System.currentTimeMillis() - start);
     }
 }

@@ -30,7 +30,7 @@ class RestTemplateConfigTest {
 
     @Test
     void appliesConfiguredApiKeyToPatientUpdate() {
-        RestTemplate template = new RestTemplateConfig().restTemplate("ODFHIR devKey/custKey");
+        RestTemplate template = new RestTemplateConfig().restTemplate("ODFHIR devKey/custKey", 0);
         MockRestServiceServer server = MockRestServiceServer.bindTo(template).build();
 
         // RestTemplateConfig builds the RestTemplate with Jackson's default
@@ -51,7 +51,7 @@ class RestTemplateConfigTest {
 
     @Test
     void omitsAuthorizationHeaderWhenNoKeyIsConfigured() {
-        RestTemplate template = new RestTemplateConfig().restTemplate("");
+        RestTemplate template = new RestTemplateConfig().restTemplate("", 0);
         MockRestServiceServer server = MockRestServiceServer.bindTo(template).build();
 
         server.expect(requestTo("http://opendental.test/api/v1/patients/47"))

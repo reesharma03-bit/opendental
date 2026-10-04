@@ -124,12 +124,14 @@ class IncrementalSyncDatabaseTest {
         assertThat(second).isEmpty();
     }
 
-    /** One tick handles a few resources; tick until carriers had its first full read. */
+    /** One tick handles a few resources; tick until every resource had its first read, so none is still due. */
     private void runUntilCarriersRead() {
-        for (int i = 0; i < 20 && cursor("last_full_at") == null; i++) {
+        for (int i = 0; i < 30; i++) {
             service.runDue(clinic);
         }
         assertThat(cursor("last_full_at")).as("carriers was read").isNotNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sync_cursors WHERE clinic_id = ? AND next_due_at <= now()",
+                Integer.class, clinic.getId())).as("nothing left due").isZero();
     }
 
     private void openDental(List<JsonNode> all, List<JsonNode> changed) {

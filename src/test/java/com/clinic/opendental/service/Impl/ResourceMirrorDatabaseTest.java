@@ -131,6 +131,44 @@ class ResourceMirrorDatabaseTest {
                 .isEqualTo(Timestamp.valueOf("2026-10-04 10:15:30"));
     }
 
+    @Test
+    void nightlyPerPatientReadsOnlyRecentPatientsAndRemovesOnlyTheirRecords() {
+        int today = jdbc.queryForObject("SELECT extract(dow FROM now())::int", Integer.class);
+        long active = 700 + (today + 1) % 7;    // edited today
+        long booked = 700 + (today + 2) % 7;    // appointment tomorrow
+        long dormant = 700 + (today + 3) % 7;   // nothing recent, not in today's seventh
+        for (long patNum : new long[]{active, booked, dormant}) {
+            jdbc.update("INSERT INTO patients (clinic_id, pat_num, l_name, f_name, created_at, updated_at) VALUES (?, ?, 'P', 'Q', "
+                    + "now() - interval '1 year', now() - interval '1 year')", clinic.getId(), patNum);
+        }
+        jdbc.update("UPDATE patients SET updated_at = now() WHERE clinic_id = ? AND pat_num = ?", clinic.getId(), active);
+        jdbc.update("INSERT INTO appointments (clinic_id, apt_num, pat_num, apt_date_time) VALUES (?, 1, ?, now() + interval '1 day')",
+                clinic.getId(), booked);
+        Resource allergies = new Resource("allergies", "/allergies", "AllergyNum", OdResourceCatalog.PATIENTS, "PatNum");
+        // Stored from earlier nights: one allergy per patient.
+        for (long patNum : new long[]{active, booked, dormant}) {
+            jdbc.update("INSERT INTO od_resource_records (clinic_id, resource, record_key, pat_num, data, synced_at) "
+                    + "VALUES (?, 'allergies', ?, ?, '{}'::jsonb, now() - interval '1 day')", clinic.getId(), "A" + patNum, patNum);
+        }
+        // Open Dental now: the active patient's allergy was deleted, the booked patient has one.
+        when(client.getRaw(eq("/allergies"), anyMap(), any(), any())).thenAnswer(inv -> {
+            java.util.Map<String, String> params = inv.getArgument(1);
+            return Long.parseLong(params.get("PatNum")) == booked
+                    ? JSON.createArrayNode().add(JSON.createObjectNode().put("AllergyNum", "A" + booked).put("PatNum", booked))
+                    : JSON.createArrayNode();
+        });
+
+        ResourceMirrorService.Result result = service.sync(clinic, allergies, Timestamp.from(Instant.now()), ResourceMirrorService.Scope.RECENT);
+
+        assertThat(result.ok()).isTrue();
+        verify(client, times(2)).getRaw(eq("/allergies"), anyMap(), any(), any());
+        verify(client, never()).getRaw(eq("/allergies"), eq(java.util.Map.of("PatNum", String.valueOf(dormant))), any(), any());
+        assertThat(jdbc.queryForList("SELECT pat_num FROM od_resource_records WHERE clinic_id = ? AND resource = 'allergies' ORDER BY pat_num",
+                Long.class, clinic.getId())).containsExactlyInAnyOrder(booked, dormant);
+        jdbc.update("DELETE FROM appointments WHERE clinic_id = ?", clinic.getId());
+        jdbc.update("DELETE FROM patients WHERE clinic_id = ?", clinic.getId());
+    }
+
     private ResourceMirrorService.Result sync() {
         return service.sync(clinic, CARRIERS, Timestamp.from(Instant.now()));
     }

@@ -26,7 +26,8 @@ public class RestTemplateConfig {
      *               the header entirely
      */
     @Bean
-    public RestTemplate restTemplate(@Value("${opendental.api-key:}") String apiKey) {
+    public RestTemplate restTemplate(@Value("${opendental.api-key:}") String apiKey,
+                                     @Value("${opendental.min-request-interval-ms:1000}") long minRequestIntervalMs) {
         RestTemplate restTemplate = new RestTemplate();
         if (apiKey != null && !apiKey.isBlank()) {
             ClientHttpRequestInterceptor apiKeyInterceptor =
@@ -38,6 +39,8 @@ public class RestTemplateConfig {
                     };
             restTemplate.getInterceptors().add(apiKeyInterceptor);
         }
+        // Last, so a retry after 429 re-sends the request exactly as prepared above.
+        restTemplate.getInterceptors().add(new OpenDentalRateLimiter(minRequestIntervalMs));
         return restTemplate;
     }
 

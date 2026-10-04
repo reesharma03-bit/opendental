@@ -97,7 +97,49 @@ public class ResourceMirrorService {
               AND NOT EXISTS (%s)
             """.formatted(QUEUED.formatted("r"));
 
-    private static final DateTimeFormatter OD_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd[ ]['T']HH:mm:ss");
+    /** A run that only visited some patients / appointments may only remove what belongs to them. */
+    private static final String PRUNE_FOR_PATIENTS = PRUNE + " AND r.pat_num = ANY(?::bigint[])";
+    private static final String PRUNE_FOR_APPOINTMENTS = PRUNE + " AND (r.data ->> 'AptNum') = ANY(?::text[])";
+
+    /**
+     * Patients worth a per-patient call tonight: changed or added in the last week, seen or
+     * booked within 30 days, plus a seventh of everyone else (by PatNum), so the whole
+     * practice is still covered once a week.
+     */
+    private static final String RECENT_PATIENTS = """
+            SELECT p.pat_num FROM patients p
+            WHERE p.clinic_id = ? AND p.pat_num > 0
+              AND (p.updated_at >= now() - interval '7 days'
+                   OR p.created_at >= now() - interval '7 days'
+                   OR p.pat_num % 7 = extract(dow FROM now())::int
+                   OR EXISTS (SELECT 1 FROM appointments a
+                              WHERE a.clinic_id = p.clinic_id AND a.pat_num = p.pat_num
+                                AND a.apt_date_time BETWEEN now() - interval '30 days' AND now() + interval '30 days'))
+            ORDER BY p.pat_num
+            """;
+
+    /** Appointments within 30 days of today, plus a seventh of the rest. */
+    private static final String RECENT_APPOINTMENTS = """
+            SELECT apt_num FROM appointments
+            WHERE clinic_id = ? AND apt_num > 0
+              AND (apt_date_time BETWEEN now() - interval '30 days' AND now() + interval '30 days'
+                   OR apt_num % 7 = extract(dow FROM now())::int)
+            ORDER BY apt_num
+            """;
+
+    /**
+     * Which parents a per-patient / per-appointment resource is fetched for. Open Dental
+     * allows about one call per second, so calling it for every patient every night does
+     * not fit in a night for a large practice.
+     */
+    public enum Scope {
+        /** Every patient / appointment (Force Sync). */
+        ALL,
+        /** Recently active ones plus a rolling seventh of the rest (nightly). */
+        RECENT
+    }
+
+    private static final DateTimeFormatter OD_TIMESTAMP =DateTimeFormatter.ofPattern("yyyy-MM-dd[ ]['T']HH:mm:ss");
     private static final DateTimeFormatter OD_TIMESTAMP_OUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int MAX_PAGES = 10_000;
 
@@ -143,18 +185,31 @@ public class ResourceMirrorService {
      * but only when every call for the resource succeeded.
      */
     public Result sync(Clinic clinic, Resource resource, Timestamp runStart) {
+        return sync(clinic, resource, runStart, Scope.ALL);
+    }
+
+    /** As {@link #sync(Clinic, Resource, Timestamp)}, fetching per-parent resources for {@code scope}'s parents. */
+    public Result sync(Clinic clinic, Resource resource, Timestamp runStart, Scope scope) {
         Counter counter = new Counter(UUID.randomUUID());
         try {
+            List<Long> parents = null;
             if (resource.isList()) {
                 for (Map<String, String> pass : resource.passes()) {
                     forEachPage(clinic, resource.path(), pass, rows -> save(clinic, resource, rows, null, counter));
                 }
             } else {
-                syncPerParent(clinic, resource, counter);
+                parents = parentIds(clinic, resource, scope);
+                syncPerParent(clinic, resource, parents, counter);
             }
             if (counter.failedCalls == 0) {
-                Integer removed = tx.execute(status -> jdbc.update(PRUNE,
-                        clinic.getId(), resource.resource(), runStart, counter.runBatch));
+                String prune = PRUNE;
+                List<Object> args = new ArrayList<>(List.of(clinic.getId(), resource.resource(), runStart, counter.runBatch));
+                if (scope == Scope.RECENT && parents != null && scoped(resource)) {
+                    prune = OdResourceCatalog.PATIENTS.equals(resource.parent()) ? PRUNE_FOR_PATIENTS : PRUNE_FOR_APPOINTMENTS;
+                    args.add(parents.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",", "{", "}")));
+                }
+                String sql = prune;
+                Integer removed = tx.execute(status -> jdbc.update(sql, args.toArray()));
                 counter.removed = removed == null ? 0 : removed;
                 if (counter.removed > 0) {
                     log.info("Removed {} {} row(s) no longer in Open Dental (clinic {})",
@@ -235,9 +290,9 @@ public class ResourceMirrorService {
         }
     }
 
-    private void syncPerParent(Clinic clinic, Resource resource, Counter counter) {
+    private void syncPerParent(Clinic clinic, Resource resource, List<Long> parents, Counter counter) {
         int consecutiveFailures = 0;
-        for (Long parentId : parentIds(clinic, resource)) {
+        for (Long parentId : parents) {
             try {
                 if (resource.parentInPath()) {
                     save(clinic, resource, rows(get(clinic, resource.path().replace("{id}", String.valueOf(parentId)), Map.of())),
@@ -261,8 +316,19 @@ public class ResourceMirrorService {
         }
     }
 
+    /** Fetched per patient or per appointment: the resources a RECENT run narrows down. */
+    private static boolean scoped(Resource resource) {
+        return OdResourceCatalog.PATIENTS.equals(resource.parent()) || OdResourceCatalog.APPOINTMENTS.equals(resource.parent());
+    }
+
     /** Ids to query a per-parent resource by, taken from what is already in our database. */
-    List<Long> parentIds(Clinic clinic, Resource resource) {
+    List<Long> parentIds(Clinic clinic, Resource resource, Scope scope) {
+        if (scope == Scope.RECENT && OdResourceCatalog.PATIENTS.equals(resource.parent())) {
+            return jdbc.queryForList(RECENT_PATIENTS, Long.class, clinic.getId());
+        }
+        if (scope == Scope.RECENT && OdResourceCatalog.APPOINTMENTS.equals(resource.parent())) {
+            return jdbc.queryForList(RECENT_APPOINTMENTS, Long.class, clinic.getId());
+        }
         return switch (resource.parent()) {
             case OdResourceCatalog.PATIENTS -> jdbc.queryForList(
                     "SELECT pat_num FROM patients WHERE clinic_id = ? AND pat_num > 0 ORDER BY pat_num",

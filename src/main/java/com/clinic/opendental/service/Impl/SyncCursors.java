@@ -74,6 +74,7 @@ public class SyncCursors {
                         WHERE (c.clinic_id, c.resource) IN (
                             SELECT clinic_id, resource FROM sync_cursors
                             WHERE clinic_id = ? AND next_due_at <= now() AND (locked_until IS NULL OR locked_until < now())
+                              AND resource NOT LIKE 'core:%'
                             ORDER BY next_due_at
                             LIMIT ?
                             FOR UPDATE SKIP LOCKED)
@@ -119,6 +120,32 @@ public class SyncCursors {
                         """,
                 error == null ? "unknown error" : error, filterRejected,
                 interval.toSeconds(), MAX_BACKOFF.toSeconds(), cursor.clinicId(), cursor.resource()));
+    }
+
+    /**
+     * Where the change pull of a core table (patients, appointments, procedure logs) resumes:
+     * the newest Open Dental DateTStamp merged so far. Kept as {@code core:<table>} rows,
+     * which the listed-resource scheduler leaves alone.
+     */
+    public LocalDateTime coreWatermark(Clinic clinic, String table) {
+        List<Timestamp> found = jdbc.queryForList(
+                "SELECT watermark FROM sync_cursors WHERE clinic_id = ? AND resource = ? AND watermark IS NOT NULL",
+                Timestamp.class, clinic.getId(), "core:" + table);
+        return found.isEmpty() ? null : found.get(0).toLocalDateTime();
+    }
+
+    public void coreWatermark(Clinic clinic, String table, LocalDateTime latest) {
+        if (latest == null) {
+            return;
+        }
+        tx.executeWithoutResult(status -> jdbc.update("""
+                        INSERT INTO sync_cursors (clinic_id, resource, tier, supports_tstamp, watermark, last_incremental_at, status)
+                        VALUES (?, ?, 'hot', true, ?, now(), 'idle')
+                        ON CONFLICT (clinic_id, resource) DO UPDATE
+                        SET watermark = GREATEST(sync_cursors.watermark, EXCLUDED.watermark),
+                            last_incremental_at = now(), updated_at = now()
+                        """,
+                clinic.getId(), "core:" + table, Timestamp.valueOf(latest)));
     }
 
     /**
