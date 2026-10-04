@@ -21,7 +21,6 @@ import com.clinic.opendental.service.SubscriptionService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -37,15 +36,9 @@ public class SubscriptionController {
     @GetMapping
     @Operation(summary = "List all webhook subscriptions")
     public ResponseEntity<?> getSubscriptions(
-            @RequestHeader(value = "Authorization", required = false) String apiKey,
-            HttpServletRequest request) {
-        log.info("GET /api/subscriptions apiKeyPresent={}, apiKey=[{}]", apiKey != null && !apiKey.isBlank(), apiKey);
-        log.info(">>> ALL INCOMING REQUEST HEADERS:");
-        java.util.Enumeration<String> names = request.getHeaderNames();
-        while (names != null && names.hasMoreElements()) {
-            String name = names.nextElement();
-            log.info(">>>   {} = {}", name, request.getHeader(name));
-        }
+            @RequestHeader(value = "Authorization", required = false) String apiKey) {
+        // Never log the key or the request headers: they carry credentials and the session cookie.
+        log.info("GET /api/subscriptions apiKeyPresent={}", apiKey != null && !apiKey.isBlank());
         List<SubscriptionResponse> subscriptions = subscriptionService.getSubscriptions(apiKey);
         return ResponseEntity.ok(Map.of(
                 "count", subscriptions.size(),

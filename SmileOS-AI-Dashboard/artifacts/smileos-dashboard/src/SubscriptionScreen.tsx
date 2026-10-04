@@ -14,7 +14,13 @@ const blankSubscription = (): SubscriptionValues => ({
   dateTimeStop: '', note: '',
 });
 
-const inputClass = 'mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
+/** Watch tables the backend has a webhook route for (/api/webhooks/opendental/{table}). */
+const RECEIVED_TABLES = new Set([
+  'Appointment', 'AppointmentDeleted', 'Operatory', 'PatField', 'PatFieldDeleted', 'Patient',
+  'Provider', 'Schedule', 'ScheduleDeleted', 'ToothInitial', 'ToothInitialDeleted',
+]);
+
+const inputClass ='mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
 
 function SubscriptionDialog({
   record, onClose, onSave, saving, error,
@@ -32,6 +38,11 @@ function SubscriptionDialog({
   });
   const set = <K extends keyof typeof values>(key: K, value: (typeof values)[K]) =>
     setValues((current) => ({ ...current, [key]: value }));
+  // Open Dental can't change what a subscription watches once it exists (PUT accepts only
+  // EndPointUrl, Workstation, PollingSeconds, DateTimeStart, DateTimeStop and Note).
+  const locked = Boolean(record);
+  const received = values.eventKind === 'Database' && RECEIVED_TABLES.has(values.watchTable);
+  const webhookUrl = received ? `${window.location.origin}/api/webhooks/opendental/${values.watchTable.toLowerCase()}` : null;
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/35 p-4 backdrop-blur-[2px]" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -50,18 +61,30 @@ function SubscriptionDialog({
             <legend className="mb-2 text-[11px] font-bold text-slate-700">Event source</legend>
             <div className="grid grid-cols-2 gap-2">
               {(['Database', 'UI'] as const).map((kind) => (
-                <button key={kind} type="button" aria-pressed={values.eventKind === kind} onClick={() => set('eventKind', kind)} className={`flex min-h-12 items-center gap-2 rounded-xl border px-3 text-left text-[11px] font-semibold transition ${values.eventKind === kind ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                <button key={kind} type="button" disabled={locked && values.eventKind !== kind} aria-pressed={values.eventKind === kind} onClick={() => set('eventKind', kind)} className={`flex min-h-12 items-center gap-2 rounded-xl border px-3 text-left text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${values.eventKind === kind ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
                   {kind === 'Database' ? <Database size={15} /> : <Monitor size={15} />}
                   <span>{kind === 'Database' ? 'Database event' : 'UI event'}</span>
                   {values.eventKind === kind && <Check size={14} className="ml-auto" />}
                 </button>
               ))}
             </div>
+            {locked
+              ? <p className="mt-1.5 text-[10px] leading-4 text-slate-400">Open Dental can't change what a subscription watches. To watch something else, remove this subscription and add a new one.</p>
+              : values.eventKind === 'UI' && <p className="mt-1.5 text-[10px] leading-4 text-amber-600">UI events are sent by Open Dental on the workstation, usually to a program running on that computer. SmileOS doesn't receive UI events yet.</p>}
           </fieldset>
 
           <label className="block text-[11px] font-semibold text-slate-700">
             Endpoint URL
             <input className={inputClass} type="url" required value={values.endpoint} onChange={(event) => set('endpoint', event.target.value)} placeholder="https://your-server.example/events" />
+            {values.eventKind === 'Database' && !received && (
+              <span className="mt-1 block text-[10px] font-normal leading-4 text-amber-600">SmileOS doesn't receive {values.watchTable} events yet; they are picked up by the regular sync instead.</span>
+            )}
+            {webhookUrl && (
+              <span className="mt-1 block text-[10px] font-normal leading-4 text-slate-400">
+                To send these events to SmileOS: <code className="break-all text-slate-500">{webhookUrl}</code>{' '}
+                <button type="button" onClick={() => set('endpoint', webhookUrl)} className="font-semibold text-blue-600 hover:underline">Use this</button>
+              </span>
+            )}
           </label>
           <label className="block text-[11px] font-semibold text-slate-700">
             Workstation
@@ -73,7 +96,7 @@ function SubscriptionDialog({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-[11px] font-semibold text-slate-700">
                 Watch table
-                <select className={inputClass} value={values.watchTable} onChange={(event) => set('watchTable', event.target.value)}>
+                <select className={`${inputClass} disabled:bg-slate-50 disabled:text-slate-500`} disabled={locked} value={values.watchTable} onChange={(event) => set('watchTable', event.target.value)}>
                   {[
                     'Appointment', 'AppointmentDeleted', 'LabCase', 'LabCaseDeleted',
                     'MedicationPat', 'MedicationPatDeleted', 'Operatory', 'PatField',
@@ -90,7 +113,7 @@ function SubscriptionDialog({
           ) : (
             <label className="block text-[11px] font-semibold text-slate-700">
               UI event type
-              <select className={inputClass} value={values.uiEventType} onChange={(event) => set('uiEventType', event.target.value)}>
+              <select className={`${inputClass} disabled:bg-slate-50 disabled:text-slate-500`} disabled={locked} value={values.uiEventType || 'PatientSelected'} onChange={(event) => set('uiEventType', event.target.value)}>
                 <option value="PatientSelected">PatientSelected</option>
               </select>
             </label>

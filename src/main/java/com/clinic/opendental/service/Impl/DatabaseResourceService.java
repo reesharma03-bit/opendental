@@ -121,6 +121,9 @@ public class DatabaseResourceService {
         }
         Resource def = known(resource);
         writable(resource, "create", Writable::create);
+        if ("subscriptions".equals(resource)) {
+            SubscriptionRules.checkCreate(body);
+        }
         UUID clinicId = clinic().getId();
         long taskId = odSync.recordCreate(clinicId, OdResourceCatalog.entityType(resource), OdSyncService.CREATE, body,
                 tempKey -> {
@@ -149,6 +152,11 @@ public class DatabaseResourceService {
         ensureStored(clinic, resource, key);
         Map<String, Object> changes = new LinkedHashMap<>(body);
         changes.remove(def.keyField());
+        if ("subscriptions".equals(resource)) {
+            SubscriptionRules.checkUpdate(changes, records.find(clinic.getId(), resource, key)
+                    .<Map<String, Object>>map(stored -> JSON.convertValue(stored, new com.fasterxml.jackson.core.type.TypeReference<>() {}))
+                    .orElse(null));
+        }
         long taskId = odSync.recordChange(clinic.getId(), OdResourceCatalog.entityType(resource), OdSyncService.UPDATE,
                 numericKey(resource, key), changes,
                 () -> records.merge(clinic.getId(), resource, key, changes));
