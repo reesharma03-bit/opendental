@@ -1,7 +1,5 @@
 package com.clinic.opendental.service.Impl;
 
-import com.anthropic.core.JsonValue;
-import com.anthropic.models.messages.Tool;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.security.Permission;
@@ -39,11 +37,11 @@ public class AssistantTools {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
-     * A tool definition, the permission it needs (null: any signed-in user) and the code
-     * that answers it. The handler gets the caller's permissions to leave out what they
-     * may not see.
+     * A tool in the chat-completions "function" format (name, description, JSON Schema
+     * parameters), the permission it needs (null: any signed-in user) and the code that
+     * answers it. The handler gets the caller's permissions to leave out what they may not see.
      */
-    record Definition(Tool tool, Permission required, Handler handler) {
+    record Definition(Map<String, Object> tool, Permission required, Handler handler) {
     }
 
     @FunctionalInterface
@@ -69,8 +67,8 @@ public class AssistantTools {
         register();
     }
 
-    /** The tools someone with these permissions may use. */
-    List<Tool> tools(Set<Permission> permissions) {
+    /** The tools someone with these permissions may use, as {"type": "function", "function": {...}} entries. */
+    List<Map<String, Object>> tools(Set<Permission> permissions) {
         return definitions.values().stream()
                 .filter(d -> d.required() == null || permissions.contains(d.required()))
                 .map(Definition::tool).toList();
@@ -171,14 +169,15 @@ public class AssistantTools {
 
     private void add(String name, String description, Map<String, Map<String, Object>> properties,
                      List<String> required, Permission permission, Handler handler) {
-        Tool.InputSchema.Properties.Builder props = Tool.InputSchema.Properties.builder();
-        properties.forEach((key, schema) -> props.putAdditionalProperty(key, JsonValue.from(schema)));
-        Tool tool = Tool.builder()
-                .name(name)
-                .description(description)
-                .inputSchema(Tool.InputSchema.builder().properties(props.build()).required(required).build())
-                .build();
-        definitions.put(name, new Definition(tool, permission, handler));
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("type", "object");
+        parameters.put("properties", properties);
+        parameters.put("required", required);
+        Map<String, Object> function = new LinkedHashMap<>();
+        function.put("name", name);
+        function.put("description", description);
+        function.put("parameters", parameters);
+        definitions.put(name, new Definition(Map.of("type", "function", "function", function), permission, handler));
     }
 
     private static Map<String, Object> prop(String type, String description) {

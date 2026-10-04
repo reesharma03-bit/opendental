@@ -86,11 +86,13 @@ auth:
   bootstrap-admin-password: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:}
   bootstrap-admin-name: ${AUTH_BOOTSTRAP_ADMIN_NAME:Practice Admin}
 
-# AI Assistant (dashboard). Uses Claude through the Anthropic API; leave the key empty to
-# switch the assistant off. Only send patient data to the API under a signed BAA.
+# AI Assistant (dashboard). Uses a model served by Groq (OpenAI-compatible chat
+# completions with tool calling); leave the key empty to switch the assistant off.
+# Only send patient data to the API under a signed BAA with the provider.
 assistant:
-  api-key: ${ANTHROPIC_API_KEY:}
-  model: ${ASSISTANT_MODEL:claude-opus-5-5}
+  api-key: ${GROQ_API_KEY:}
+  model: ${ASSISTANT_MODEL:openai/gpt-oss-120b}
+  base-url: ${ASSISTANT_BASE_URL:https://api.groq.com/openai/v1}
 
 # Copies Open Dental resources without their own table into od_resource_records.
 # cron: resources Open Dental lists in one paged call.

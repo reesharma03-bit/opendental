@@ -152,7 +152,7 @@ export default function AssistantPanel({ open, onClose, onOpenPatient }: {
           {configured === false && (
             <div role="note" className="flex gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[11px] leading-5 text-amber-900">
               <CircleAlert size={15} className="mt-0.5 shrink-0" />
-              <p><b>Not set up yet.</b> Set <code className="rounded bg-amber-100 px-1">ANTHROPIC_API_KEY</code> on the backend and restart it. Only send patient data to the AI service under a signed BAA.</p>
+              <p><b>Not set up yet.</b> Set <code className="rounded bg-amber-100 px-1">GROQ_API_KEY</code> on the backend and restart it. Only send patient data to the AI service under a signed BAA.</p>
             </div>
           )}
           {turns.length === 0 && (
