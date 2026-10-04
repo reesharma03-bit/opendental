@@ -1,5 +1,7 @@
 package com.clinic.opendental.security;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -30,10 +32,10 @@ public class UserAdminController {
     private final UserService userService;
     private final AuditEventRepository events;
 
-    public record CreateUserRequest(String email, String fullName, String role, String password) {
+    public record CreateUserRequest(String email, @JsonAlias("fullName") String fullName, String role, String password) {
     }
 
-    public record UpdateUserRequest(String fullName, String role, Boolean active) {
+    public record UpdateUserRequest(@JsonAlias("fullName") String fullName, String role, Boolean active) {
     }
 
     public record ResetPasswordRequest(String password) {

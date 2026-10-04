@@ -1,5 +1,7 @@
 package com.clinic.opendental.security;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +32,8 @@ public class AuthController {
     public record LoginRequest(String email, String password) {
     }
 
-    public record ChangePasswordRequest(String currentPassword, String newPassword) {
+    public record ChangePasswordRequest(@JsonAlias("currentPassword") String currentPassword,
+                                        @JsonAlias("newPassword") String newPassword) {
     }
 
     @PostMapping("/login")
