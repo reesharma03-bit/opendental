@@ -2,23 +2,23 @@ package com.clinic.opendental.service;
 
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.clinic.opendental.dto.appointment.AppointmentResponse;
 import com.clinic.opendental.dto.appointmentdeleted.AppointmentDeletedResponse;
-import com.clinic.opendental.dto.document.DocumentResponse;
 import com.clinic.opendental.dto.operatory.OperatoryResponse;
 import com.clinic.opendental.dto.patfield.PatFieldResponse;
 import com.clinic.opendental.dto.patfielddeleted.PatFieldDeletedResponse;
 import com.clinic.opendental.dto.patient.PatientResponse;
 import com.clinic.opendental.dto.provider.ProviderResponse;
-import com.clinic.opendental.dto.procedurelog.ProcedureLogResponse;
-import com.clinic.opendental.dto.query.QueryRequest;
 import com.clinic.opendental.dto.schedule.ScheduleResponse;
 import com.clinic.opendental.dto.scheduledeleted.ScheduleDeletedResponse;
 import com.clinic.opendental.dto.toothinitial.ToothInitialResponse;
 import com.clinic.opendental.dto.toothinitialdeleted.ToothInitialDeletedResponse;
+import com.clinic.opendental.dto.labcase.LabCaseResponse;
+import com.clinic.opendental.dto.labcasedeleted.LabCaseDeletedResponse;
+import com.clinic.opendental.dto.medicationpat.MedicationPatResponse;
+import com.clinic.opendental.dto.medicationpatdeleted.MedicationPatDeletedResponse;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +29,9 @@ import lombok.extern.slf4j.Slf4j;
 public class WebhookService {
 
     private final SyncService syncService;
-    private final QueryService queryService;
 
-    @Value("${opendental.clinics.default-clinic-code}")
-    private String defaultClinicCode;
+    /** Which practice each webhook belongs to (from the API key Open Dental sends with it). */
+    private final WebhookClinics webhookClinics;
 
     // ========================================================================
     // Patient webhook
@@ -62,7 +61,7 @@ public class WebhookService {
         for (PatientResponse dto : patients) {
             try {
                 //log.info(">>> Patient record from webhook (all properties): {}", dto);
-                SyncService.SyncResult result = syncService.savePatientFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.savePatientFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -100,7 +99,7 @@ public class WebhookService {
             try {
                 log.info("Saving appointment {} (pat {}) from webhook to database",
                         dto.getAptNum(), dto.getPatNum());
-                SyncService.SyncResult result = syncService.saveAppointmentFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveAppointmentFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                     log.warn("Appointment {} failed to save from webhook: {}", dto.getAptNum(), result.message());
@@ -118,98 +117,6 @@ public class WebhookService {
     }
 
     // ========================================================================
-    // Document webhook
-    // ========================================================================
-
-    /**
-     * Process a Document webhook event from Open Dental.
-     *
-     * Open Dental sends the full document records in the webhook payload as a JSON
-     * array. We save the received payload directly to Supabase — no API fetch needed.
-     */
-    public void processDocumentWebhook(List<DocumentResponse> documents) {
-        if (documents == null || documents.isEmpty()) {
-            log.warn("Webhook payload is empty. Skipping document save.");
-            return;
-        }
-
-        int saved = 0;
-        int failed = 0;
-
-        for (DocumentResponse dto : documents) {
-            try {
-                SyncService.SyncResult result = syncService.saveDocumentFromDto(dto, defaultClinicCode);
-                if (result.failedCount() > 0) {
-                    failed++;
-                } else {
-                    saved++;
-                }
-            } catch (Exception e) {
-                failed++;
-                log.error("Failed to save document {} from webhook: {}", dto.getDocNum(), e.getMessage());
-            }
-        }
-
-        log.info("Document webhook complete: {} saved, {} failed", saved, failed);
-    }
-
-    // ========================================================================
-    // ProcedureLog webhook
-    // ========================================================================
-
-    /**
-     * Process a ProcedureLog webhook event from Open Dental.
-     *
-     * Open Dental sends the full procedure log records in the webhook payload
-     * as a JSON array. We save the received payload directly to Supabase.
-     */
-    public void processProcedureLogWebhook(List<ProcedureLogResponse> records) {
-        if (records == null || records.isEmpty()) {
-            log.warn("Webhook payload is empty. Skipping procedureLog save.");
-            return;
-        }
-
-        int saved = 0;
-        int failed = 0;
-
-        for (ProcedureLogResponse dto : records) {
-            try {
-                SyncService.SyncResult result = syncService.saveProcedureLogFromDto(dto, defaultClinicCode);
-                if (result.failedCount() > 0) {
-                    failed++;
-                } else {
-                    saved++;
-                }
-            } catch (Exception e) {
-                failed++;
-                log.error("Failed to save procedureLog {} from webhook: {}", dto.getProcNum(), e.getMessage());
-            }
-        }
-
-        log.info("ProcedureLog webhook complete: {} saved, {} failed", saved, failed);
-    }
-
-    // ========================================================================
-    // Query webhook
-    // ========================================================================
-
-    /**
-     * Process a Query webhook event from Open Dental.
-     *
-     * Open Dental sends a single query request (not an array) which is
-     * forwarded to the query service to execute and save results to SFTP.
-     */
-    public void processQueryWebhook(QueryRequest request) {
-        if (request == null) {
-            log.warn("Webhook payload is empty. Skipping query.");
-            return;
-        }
-
-        log.info("Processing query webhook: {}", request.getSqlCommand());
-        queryService.runQuery(request);
-    }
-
-    // ========================================================================
     // AppointmentDeleted webhook
 
     public void processAppointmentDeletedWebhook(List<AppointmentDeletedResponse> records) {
@@ -223,7 +130,7 @@ public class WebhookService {
 
         for (AppointmentDeletedResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveAppointmentDeletedFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveAppointmentDeletedFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -253,7 +160,7 @@ public class WebhookService {
 
         for (OperatoryResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveOperatoryFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveOperatoryFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -283,7 +190,7 @@ public class WebhookService {
 
         for (PatFieldResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.savePatFieldFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.savePatFieldFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -313,7 +220,7 @@ public class WebhookService {
 
         for (PatFieldDeletedResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.savePatFieldDeletedFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.savePatFieldDeletedFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -343,7 +250,7 @@ public class WebhookService {
 
         for (ProviderResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveProviderFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveProviderFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -373,7 +280,7 @@ public class WebhookService {
 
         for (ScheduleResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveScheduleFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveScheduleFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -403,7 +310,7 @@ public class WebhookService {
 
         for (ScheduleDeletedResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveScheduleDeletedFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveScheduleDeletedFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -433,7 +340,7 @@ public class WebhookService {
 
         for (ToothInitialResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveToothInitialFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveToothInitialFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -463,7 +370,7 @@ public class WebhookService {
 
         for (ToothInitialDeletedResponse dto : records) {
             try {
-                SyncService.SyncResult result = syncService.saveToothInitialDeletedFromDto(dto, defaultClinicCode);
+                SyncService.SyncResult result = syncService.saveToothInitialDeletedFromDto(dto, webhookClinics.clinicCode());
                 if (result.failedCount() > 0) {
                     failed++;
                 } else {
@@ -476,5 +383,125 @@ public class WebhookService {
         }
 
         log.info("ToothInitialDeleted webhook complete: {} saved, {} failed", saved, failed);
+    }
+
+    // ========================================================================
+    // LabCase webhook
+    // ========================================================================
+
+    public void processLabCaseWebhook(List<LabCaseResponse> records) {
+        if (records == null || records.isEmpty()) {
+            log.warn("Webhook payload is empty. Skipping labCase save.");
+            return;
+        }
+
+        int saved = 0;
+        int failed = 0;
+
+        for (LabCaseResponse dto : records) {
+            try {
+                SyncService.SyncResult result = syncService.saveLabCaseFromDto(dto, webhookClinics.clinicCode());
+                if (result.failedCount() > 0) {
+                    failed++;
+                } else {
+                    saved++;
+                }
+            } catch (Exception e) {
+                failed++;
+                log.error("Failed to save labCase record from webhook: {}", e.getMessage());
+            }
+        }
+
+        log.info("LabCase webhook complete: {} saved, {} failed", saved, failed);
+    }
+
+    // ========================================================================
+    // LabCaseDeleted webhook
+    // ========================================================================
+
+    public void processLabCaseDeletedWebhook(List<LabCaseDeletedResponse> records) {
+        if (records == null || records.isEmpty()) {
+            log.warn("Webhook payload is empty. Skipping labCaseDeleted save.");
+            return;
+        }
+
+        int saved = 0;
+        int failed = 0;
+
+        for (LabCaseDeletedResponse dto : records) {
+            try {
+                SyncService.SyncResult result = syncService.saveLabCaseDeletedFromDto(dto, webhookClinics.clinicCode());
+                if (result.failedCount() > 0) {
+                    failed++;
+                } else {
+                    saved++;
+                }
+            } catch (Exception e) {
+                failed++;
+                log.error("Failed to save labCaseDeleted record from webhook: {}", e.getMessage());
+            }
+        }
+
+        log.info("LabCaseDeleted webhook complete: {} saved, {} failed", saved, failed);
+    }
+
+    // ========================================================================
+    // MedicationPat webhook
+    // ========================================================================
+
+    public void processMedicationPatWebhook(List<MedicationPatResponse> records) {
+        if (records == null || records.isEmpty()) {
+            log.warn("Webhook payload is empty. Skipping medicationPat save.");
+            return;
+        }
+
+        int saved = 0;
+        int failed = 0;
+
+        for (MedicationPatResponse dto : records) {
+            try {
+                SyncService.SyncResult result = syncService.saveMedicationPatFromDto(dto, webhookClinics.clinicCode());
+                if (result.failedCount() > 0) {
+                    failed++;
+                } else {
+                    saved++;
+                }
+            } catch (Exception e) {
+                failed++;
+                log.error("Failed to save medicationPat record from webhook: {}", e.getMessage());
+            }
+        }
+
+        log.info("MedicationPat webhook complete: {} saved, {} failed", saved, failed);
+    }
+
+    // ========================================================================
+    // MedicationPatDeleted webhook
+    // ========================================================================
+
+    public void processMedicationPatDeletedWebhook(List<MedicationPatDeletedResponse> records) {
+        if (records == null || records.isEmpty()) {
+            log.warn("Webhook payload is empty. Skipping medicationPatDeleted save.");
+            return;
+        }
+
+        int saved = 0;
+        int failed = 0;
+
+        for (MedicationPatDeletedResponse dto : records) {
+            try {
+                SyncService.SyncResult result = syncService.saveMedicationPatDeletedFromDto(dto, webhookClinics.clinicCode());
+                if (result.failedCount() > 0) {
+                    failed++;
+                } else {
+                    saved++;
+                }
+            } catch (Exception e) {
+                failed++;
+                log.error("Failed to save medicationPatDeleted record from webhook: {}", e.getMessage());
+            }
+        }
+
+        log.info("MedicationPatDeleted webhook complete: {} saved, {} failed", saved, failed);
     }
 }

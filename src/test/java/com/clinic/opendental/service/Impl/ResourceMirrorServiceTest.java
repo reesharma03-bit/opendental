@@ -45,7 +45,7 @@ class ResourceMirrorServiceTest {
     void setUp() {
         client = mock(OpenDentalClient.class);
         jdbc = mock(JdbcTemplate.class);
-        service = new ResourceMirrorService(client, jdbc, mock(org.springframework.transaction.PlatformTransactionManager.class), 0);
+        service = new ResourceMirrorService(client, jdbc, mock(org.springframework.transaction.PlatformTransactionManager.class));
     }
 
     @Test

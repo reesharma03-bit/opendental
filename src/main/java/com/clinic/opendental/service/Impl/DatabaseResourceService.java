@@ -18,6 +18,9 @@ import com.clinic.opendental.service.Impl.OdResourceCatalog.Writable;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -81,6 +84,12 @@ public class DatabaseResourceService {
         map.put("create", writable != null && writable.create());
         map.put("update", writable != null && writable.update());
         map.put("delete", writable != null && writable.delete());
+        WriteSpec spec = OdWriteSpecs.of(resource);
+        if (spec != null) {
+            // The fields Open Dental accepts, so the dashboard can build Add / Edit forms
+            // even before any record of this resource has been synced.
+            map.putAll(spec.describe());
+        }
         return map;
     }
 
@@ -121,10 +130,21 @@ public class DatabaseResourceService {
         }
         Resource def = known(resource);
         writable(resource, "create", Writable::create);
+        if ("userods".equals(resource)) {
+            return createOpenDentalUser(body);
+        }
+        // Resource-specific rules first (clearer messages), then Open Dental's field list.
         if ("subscriptions".equals(resource)) {
             SubscriptionRules.checkCreate(body);
         }
         UUID clinicId = clinic().getId();
+        if ("adjustments".equals(resource)) {
+            AdjustmentRules.checkCreate(body, defNum -> adjustmentSign(clinicId, defNum));
+        }
+        WriteSpec spec = OdWriteSpecs.of(resource);
+        if (spec != null) {
+            spec.checkCreate(resource, body);
+        }
         long taskId = odSync.recordCreate(clinicId, OdResourceCatalog.entityType(resource), OdSyncService.CREATE, body,
                 tempKey -> {
                     Map<String, Object> data = new LinkedHashMap<>(OdResourceCatalog.WRITABLE.get(resource).defaults());
@@ -152,10 +172,19 @@ public class DatabaseResourceService {
         ensureStored(clinic, resource, key);
         Map<String, Object> changes = new LinkedHashMap<>(body);
         changes.remove(def.keyField());
+        // Resource-specific rules first (clearer messages), then Open Dental's field list.
         if ("subscriptions".equals(resource)) {
-            SubscriptionRules.checkUpdate(changes, records.find(clinic.getId(), resource, key)
-                    .<Map<String, Object>>map(stored -> JSON.convertValue(stored, new com.fasterxml.jackson.core.type.TypeReference<>() {}))
-                    .orElse(null));
+            SubscriptionRules.checkUpdate(changes, storedMap(clinic, resource, key));
+        }
+        if ("userods".equals(resource)) {
+            UserodRules.checkUpdate(changes);
+        }
+        if ("adjustments".equals(resource)) {
+            AdjustmentRules.checkUpdate(changes, storedMap(clinic, resource, key), defNum -> adjustmentSign(clinic.getId(), defNum));
+        }
+        WriteSpec spec = OdWriteSpecs.of(resource);
+        if (spec != null) {
+            spec.checkUpdate(resource, changes);
         }
         long taskId = odSync.recordChange(clinic.getId(), OdResourceCatalog.entityType(resource), OdSyncService.UPDATE,
                 numericKey(resource, key), changes,
@@ -245,6 +274,59 @@ public class DatabaseResourceService {
         } catch (NumberFormatException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, resource + " key must be a number: " + key);
         }
+    }
+
+    /**
+     * A new Open Dental user goes straight to Open Dental instead of through the outbox: the
+     * request carries a password, which must never wait in od_sync_queue. Open Dental echoes
+     * the password in its answer, so it is removed before the user is stored or returned.
+     */
+    private JsonNode createOpenDentalUser(Map<String, Object> body) {
+        UserodRules.checkCreate(body);
+        Clinic clinic = clinic();
+        String password = body.entrySet().stream().filter(e -> UserodRules.isSecret(e.getKey()))
+                .map(e -> String.valueOf(e.getValue())).findFirst().orElse("");
+        JsonNode response;
+        try {
+            response = client.sendRaw(HttpMethod.POST, "/userods", body, clinic.getBaseUrl(), clinic.getApiKey());
+        } catch (HttpStatusCodeException e) {
+            String reason = e.getResponseBodyAsString();
+            if (!password.isEmpty()) reason = reason.replace(password, "********");
+            throw new ApiException(e.getStatusCode().value() == 400 ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY,
+                    "Open Dental did not create the user: " + (reason.isBlank() ? e.getStatusText() : reason));
+        } catch (ResourceAccessException e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY,
+                    "Open Dental is not reachable. Users can only be added while it is, so the password is never stored here.");
+        }
+        if (!(response instanceof ObjectNode created) || !created.hasNonNull("UserNum")) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Open Dental did not return the new user.");
+        }
+        List<String> secrets = new ArrayList<>();
+        created.fieldNames().forEachRemaining(name -> { if (UserodRules.isSecret(name)) secrets.add(name); });
+        created.remove(secrets);
+        // The create answer has UserGroupNum; the user list has userGroupNums. Keep the list's shape.
+        if (!created.has("userGroupNums") && created.hasNonNull("UserGroupNum")) {
+            created.putArray("userGroupNums").add(created.get("UserGroupNum").asLong());
+        }
+        records.save(clinic.getId(), "userods", created.get("UserNum").asText(), created);
+        return created;
+    }
+
+    private Map<String, Object> storedMap(Clinic clinic, String resource, String key) {
+        return records.find(clinic.getId(), resource, key)
+                .<Map<String, Object>>map(stored -> JSON.convertValue(stored, new com.fasterxml.jackson.core.type.TypeReference<>() {}))
+                .orElse(null);
+    }
+
+    /**
+     * "+" or "-" for an adjustment type: its definition (Category 1, "AdjTypes") as synced
+     * from Open Dental. Null when the definition isn't here yet.
+     */
+    private String adjustmentSign(UUID clinicId, Long defNum) {
+        return records.find(clinicId, "definitions", String.valueOf(defNum))
+                .map(def -> def.path("ItemValue").asText("").trim())
+                .filter(sign -> sign.equals("+") || sign.equals("-"))
+                .orElse(null);
     }
 
     private Clinic clinic() {

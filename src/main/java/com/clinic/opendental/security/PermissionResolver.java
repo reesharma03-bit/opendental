@@ -62,9 +62,9 @@ public class PermissionResolver {
         put(Area.BILLING, "benefits", "carriers", "claimforms", "claimpayments", "claimprocs", "claims",
                 "claimtrackings", "covcats", "covspans", "deposits", "discountplans", "discountplansubs", "eobattaches",
                 "fees", "feescheds", "insplans", "inssubs", "insverifies", "payments", "payplancharges", "payplanlinks",
-                "payplans", "paysplits", "statements", "substitutionlinks", "patplans", "etranss", "adjustments");
-        // Staff records: admins only
-        put(Area.SYNC, "subscriptions", "employees");
+                "payplans", "paysplits", "statements", "substitutionlinks", "patplans", "etranss", "adjustments", "accountmodules");
+        // Staff records and Open Dental's own users and security groups: admins only
+        put(Area.SYNC, "subscriptions", "employees", "userods", "usergroups", "usergroupattaches");
     }
 
     private static void put(Area area, String... resources) {

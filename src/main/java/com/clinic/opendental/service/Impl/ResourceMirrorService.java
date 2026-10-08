@@ -5,7 +5,6 @@ import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.service.Impl.OdResourceCatalog.Resource;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -145,19 +144,17 @@ public class ResourceMirrorService {
 
     private final OpenDentalClient client;
     private final JdbcTemplate jdbc;
-    private final long requestDelayMs;
     /**
      * The pool runs with auto-commit off, so every write needs a transaction. Each page is
      * its own short one: no connection is held while waiting on Open Dental.
      */
     private final TransactionTemplate tx;
 
-    public ResourceMirrorService(OpenDentalClient client, JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-                                 @Value("${resource-sync.request-delay-ms:0}") long requestDelayMs) {
+    /** Calls are paced to Open Dental's rate limit by the client (see OpenDentalRateLimiter). */
+    public ResourceMirrorService(OpenDentalClient client, JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
         this.client = client;
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(transactionManager);
-        this.requestDelayMs = requestDelayMs;
     }
 
     /**
@@ -216,6 +213,7 @@ public class ResourceMirrorService {
                             counter.removed, resource.resource(), clinic.getClinicCode());
                 }
             }
+            refreshTyped(clinic, resource.resource());
             return counter.result(resource.resource());
         } catch (Exception e) {
             log.warn("Syncing {} for clinic {} failed: {}", resource.resource(), clinic.getClinicCode(), e.getMessage());
@@ -241,9 +239,68 @@ public class ResourceMirrorService {
                 forEachPage(clinic, resource.path(), with(pass, "DateTStamp", since.format(OD_TIMESTAMP_OUT)),
                         rows -> save(clinic, resource, rows, null, counter));
             }
+            refreshTyped(clinic, resource.resource());
             return counter.result(resource.resource());
         } finally {
             dropBatch(counter, resource);
+        }
+    }
+
+    /**
+     * Records Open Dental pushed by webhook (full rows): merged like a sync page, so only
+     * real changes are written and a change still waiting to go to Open Dental is kept.
+     *
+     * @return records written
+     */
+    public int applyWebhookRows(Clinic clinic, String resourceName, List<JsonNode> rows) {
+        Resource resource = OdResourceCatalog.find(resourceName);
+        if (resource == null || rows.isEmpty()) {
+            return 0;
+        }
+        Counter counter = new Counter(UUID.randomUUID());
+        try {
+            save(clinic, resource, rows, null, counter);
+            refreshTyped(clinic, resource.resource());
+            return counter.inserted + counter.updated;
+        } finally {
+            dropBatch(counter, resource);
+        }
+    }
+
+    /**
+     * Records Open Dental reported deleted by webhook. A deletion is skipped for a record with
+     * a dashboard change still waiting to go to Open Dental.
+     *
+     * @return records removed
+     */
+    public int removeWebhookRows(Clinic clinic, String resourceName, List<JsonNode> rows) {
+        Resource resource = OdResourceCatalog.find(resourceName);
+        if (resource == null || rows.isEmpty()) {
+            return 0;
+        }
+        List<String> keys = new ArrayList<>();
+        for (JsonNode row : rows) {
+            JsonNode key = row.get(resource.keyField());
+            if (key != null && !key.isNull() && !key.asText().isBlank()) keys.add(key.asText());
+        }
+        if (keys.isEmpty()) {
+            log.warn("{} deletion webhook without {}: nothing removed", resourceName, resource.keyField());
+            return 0;
+        }
+        String array = keys.stream().map(k -> "\"" + k.replace("\"", "") + "\"").collect(java.util.stream.Collectors.joining(",", "{", "}"));
+        Integer removed = tx.execute(status -> jdbc.update("""
+                        DELETE FROM od_resource_records r
+                        WHERE r.clinic_id = ? AND r.resource = ? AND r.record_key = ANY(?::text[])
+                          AND NOT EXISTS (%s)
+                        """.formatted(QUEUED.formatted("r")), clinic.getId(), resource.resource(), array));
+        refreshTyped(clinic, resource.resource());
+        return removed == null ? 0 : removed;
+    }
+
+    /** Resources that also have an own table (lab_cases, medication_pats): bring it in step. */
+    private void refreshTyped(Clinic clinic, String resource) {
+        if (TypedTableRefresh.covers(resource)) {
+            TypedTableRefresh.refresh(jdbc, tx, clinic.getId(), resource);
         }
     }
 
@@ -370,14 +427,6 @@ public class ResourceMirrorService {
     }
 
     private JsonNode get(Clinic clinic, String path, Map<String, String> params) {
-        if (requestDelayMs > 0) {
-            try {
-                Thread.sleep(requestDelayMs);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Sync interrupted", e);
-            }
-        }
         return client.getRaw(path, params, clinic.getBaseUrl(), clinic.getApiKey());
     }
 

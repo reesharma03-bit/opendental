@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -16,8 +20,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.clinic.opendental.dto.query.QueryRequest;
+import com.clinic.opendental.model.Clinic;
+import com.clinic.opendental.service.SelectedPatients;
+import com.clinic.opendental.service.WebhookClinics;
 import com.clinic.opendental.service.WebhookService;
+import com.clinic.opendental.service.Impl.ResourceMirrorService;
 
 @WebMvcTest(OpenDentalWebhookController.class)
 // Controller behaviour only; who may call what is covered by SecurityRulesTest.
@@ -29,6 +36,15 @@ class OpenDentalWebhookControllerTest {
 
     @MockBean
     private WebhookService webhookService;
+
+    @MockBean
+    private WebhookClinics webhookClinics;
+
+    @MockBean
+    private ResourceMirrorService resourceMirror;
+
+    @MockBean
+    private SelectedPatients selectedPatients;
 
     // ========================================================================
     // Patient webhook
@@ -148,109 +164,78 @@ class OpenDentalWebhookControllerTest {
     }
 
     // ========================================================================
-    // Document webhook
+    // Routes Open Dental never calls are gone (one of them ran SQL for anyone)
     // ========================================================================
 
     @Test
-    void documentWebhookReturnsOk() throws Exception {
-        String payload = """
-                [
-                  {
-                    "DocNum": 456,
-                    "Description": "X-Ray",
-                    "ImgType": "jpg",
-                    "FileName": "xray.jpg"
-                  }
-                ]
-                """;
-
-        mockMvc.perform(post("/api/webhooks/opendental/document")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
-
-        verify(webhookService).processDocumentWebhook(any(List.class));
-    }
-
-    @Test
-    void documentWebhookAcceptsEmptyBody() throws Exception {
-        mockMvc.perform(post("/api/webhooks/opendental/document")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
-
-        verify(webhookService).processDocumentWebhook(isNull());
+    void routesOpenDentalDoesNotSendAreGone() throws Exception {
+        for (String route : List.of("document", "procedurelog", "query")) {
+            mockMvc.perform(post("/api/webhooks/opendental/" + route)
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"SqlCommand\":\"SELECT * FROM patient\"}"))
+                    .andExpect(status().is4xxClientError());
+        }
+        org.mockito.Mockito.verifyNoInteractions(webhookService);
     }
 
     // ========================================================================
-    // ProcedureLog webhook
+    // Only a known practice's API key gets in
     // ========================================================================
 
     @Test
-    void procedureLogWebhookReturnsOk() throws Exception {
-        String payload = """
-                [
-                  {
-                    "ProcNum": 789,
-                    "ProcStatus": "Complete",
-                    "ProvNum": 1,
-                    "ProvAbbr": "DOC1",
-                    "Descript": "Cleaning"
-                  }
-                ]
-                """;
+    void aWebhookWithoutAKnownPracticeKeyIsRefused() throws Exception {
+        when(webhookClinics.clinic()).thenThrow(new WebhookClinics.UnknownPractice("Webhook without an Open Dental API key"));
 
-        mockMvc.perform(post("/api/webhooks/opendental/procedurelog")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
+        mockMvc.perform(post("/api/webhooks/opendental/patient")
+                        .contentType(MediaType.APPLICATION_JSON).content("[{\"PatNum\":1,\"LName\":\"Evil\"}]"))
+                .andExpect(status().isUnauthorized());
 
-        verify(webhookService).processProcedureLogWebhook(any(List.class));
-    }
-
-    @Test
-    void procedureLogWebhookAcceptsEmptyBody() throws Exception {
-        mockMvc.perform(post("/api/webhooks/opendental/procedurelog")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
-
-        verify(webhookService).processProcedureLogWebhook(isNull());
+        org.mockito.Mockito.verifyNoInteractions(webhookService, resourceMirror);
     }
 
     // ========================================================================
-    // Query webhook
+    // LabCase / MedicationPat (kept in od_resource_records)
     // ========================================================================
 
     @Test
-    void queryWebhookReturnsOk() throws Exception {
-        String payload = """
-                {
-                  "SqlCommand": "SELECT * FROM patient",
-                  "SftpAddress": "host",
-                  "SftpUsername": "user",
-                  "SftpPassword": "pass"
-                }
-                """;
+    void labCasesAndPatientMedicationsAreSavedAndRemoved() throws Exception {
+        Clinic clinic = Clinic.builder().clinicCode("A").build();
+        when(webhookClinics.clinic()).thenReturn(clinic);
 
-        mockMvc.perform(post("/api/webhooks/opendental/query")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
+        mockMvc.perform(post("/api/webhooks/opendental/labcase").contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"LabCaseNum\":5,\"PatNum\":48,\"LaboratoryNum\":2}]"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/webhooks/opendental/medicationpatdeleted").contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"MedicationPatNum\":9}]"))
+                .andExpect(status().isOk());
 
-        verify(webhookService).processQueryWebhook(any(QueryRequest.class));
+        verify(webhookService).processLabCaseWebhook(argThat(list -> list.size() == 1 && list.get(0).getLabCaseNum() == 5L));
+        verify(webhookService).processMedicationPatDeletedWebhook(argThat(list -> list.get(0).getMedicationPatNum() == 9L));
+        verify(resourceMirror).applyWebhookRows(eq(clinic), eq("labcases"), anyList());
+        verify(resourceMirror).removeWebhookRows(eq(clinic), eq("medicationpats"), anyList());
     }
 
     @Test
-    void queryWebhookAcceptsEmptyBody() throws Exception {
-        mockMvc.perform(post("/api/webhooks/opendental/query")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(content().string("OK"));
+    void scheduleChangesAlsoUpdateTheCatalogCopy() throws Exception {
+        Clinic clinic = Clinic.builder().clinicCode("A").build();
+        when(webhookClinics.clinic()).thenReturn(clinic);
 
-        verify(webhookService).processQueryWebhook(isNull());
+        mockMvc.perform(post("/api/webhooks/opendental/scheduledeleted").contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"ScheduleNum\":77}]"))
+                .andExpect(status().isOk());
+
+        verify(webhookService).processScheduleDeletedWebhook(any());
+        verify(resourceMirror).removeWebhookRows(eq(clinic), eq("schedules"), anyList());
+    }
+
+    @Test
+    void aPatientOpenedInOpenDentalIsRememberedPerWorkstation() throws Exception {
+        java.util.UUID clinicId = java.util.UUID.randomUUID();
+        when(webhookClinics.clinic()).thenReturn(Clinic.builder().id(clinicId).clinicCode("A").build());
+
+        mockMvc.perform(post("/api/webhooks/opendental/patientselected").header("Workstation", "FRONTDESK1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"PatNum\":48,\"LName\":\"Smith\",\"FName\":\"John\"}"))
+                .andExpect(status().isOk());
+
+        verify(selectedPatients).record(clinicId, "FRONTDESK1", 48L, "Smith, John");
     }
 }

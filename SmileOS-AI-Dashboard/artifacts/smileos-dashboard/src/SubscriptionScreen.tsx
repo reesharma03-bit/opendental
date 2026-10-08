@@ -14,10 +14,11 @@ const blankSubscription = (): SubscriptionValues => ({
   dateTimeStop: '', note: '',
 });
 
-/** Watch tables the backend has a webhook route for (/api/webhooks/opendental/{table}). */
+/** Watch tables the backend has a webhook route for (/api/webhooks/opendental/{table}): all 15 Open Dental offers. */
 const RECEIVED_TABLES = new Set([
-  'Appointment', 'AppointmentDeleted', 'Operatory', 'PatField', 'PatFieldDeleted', 'Patient',
-  'Provider', 'Schedule', 'ScheduleDeleted', 'ToothInitial', 'ToothInitialDeleted',
+  'Appointment', 'AppointmentDeleted', 'LabCase', 'LabCaseDeleted', 'MedicationPat', 'MedicationPatDeleted',
+  'Operatory', 'PatField', 'PatFieldDeleted', 'Patient', 'Provider', 'Schedule', 'ScheduleDeleted',
+  'ToothInitial', 'ToothInitialDeleted',
 ]);
 
 const inputClass ='mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
@@ -41,8 +42,9 @@ function SubscriptionDialog({
   // Open Dental can't change what a subscription watches once it exists (PUT accepts only
   // EndPointUrl, Workstation, PollingSeconds, DateTimeStart, DateTimeStop and Note).
   const locked = Boolean(record);
-  const received = values.eventKind === 'Database' && RECEIVED_TABLES.has(values.watchTable);
-  const webhookUrl = received ? `${window.location.origin}/api/webhooks/opendental/${values.watchTable.toLowerCase()}` : null;
+  const received = values.eventKind === 'UI' || RECEIVED_TABLES.has(values.watchTable);
+  const route = values.eventKind === 'UI' ? 'patientselected' : values.watchTable.toLowerCase();
+  const webhookUrl = received ? `${window.location.origin}/api/webhooks/opendental/${route}` : null;
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/35 p-4 backdrop-blur-[2px]" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -70,7 +72,7 @@ function SubscriptionDialog({
             </div>
             {locked
               ? <p className="mt-1.5 text-[10px] leading-4 text-slate-400">Open Dental can't change what a subscription watches. To watch something else, remove this subscription and add a new one.</p>
-              : values.eventKind === 'UI' && <p className="mt-1.5 text-[10px] leading-4 text-amber-600">UI events are sent by Open Dental on the workstation, usually to a program running on that computer. SmileOS doesn't receive UI events yet.</p>}
+              : values.eventKind === 'UI' && <p className="mt-1.5 text-[10px] leading-4 text-slate-500">Sent by Open Dental on the workstation when someone opens a patient. SmileOS shows that patient in its top bar, one click to open. The workstation needs internet access to the SmileOS address.</p>}
           </fieldset>
 
           <label className="block text-[11px] font-semibold text-slate-700">

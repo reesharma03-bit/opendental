@@ -9,12 +9,35 @@ import {
   type ColumnMeta, type FieldKind, type FieldMeta, type ParamMeta, type ResourceMeta,
 } from './resourceMeta';
 
+/** A field Open Dental accepts on create or update, from the backend's write specs. */
+export interface SpecField {
+  name: string;
+  required: boolean;
+  kind: 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'bool' | 'select' | 'patient' | 'list';
+  options?: string[];
+}
+
 export interface DatabaseCapability {
   resource: string;
   keyField: string;
   create: boolean;
   update: boolean;
   delete: boolean;
+  /** What Open Dental's API accepts (its documentation); present for every writable resource. */
+  createFields?: SpecField[];
+  updateFields?: SpecField[];
+}
+
+/** Form fields from Open Dental's documented fields, so Add / Edit work before anything has synced. */
+export function specFields(fields: SpecField[] | undefined): FieldMeta[] {
+  return (fields ?? []).map((f) => ({
+    name: f.name,
+    label: humanize(f.name.replace(/_$/, '')),
+    kind: f.kind,
+    required: f.required,
+    ...(f.options ? { options: f.options } : {}),
+    ...(f.kind === 'list' ? { help: 'Numbers separated by commas, e.g. 12, 15', placeholder: '12, 15' } : {}),
+  }));
 }
 
 type Row = Record<string, unknown>;
@@ -115,8 +138,11 @@ export function databaseMeta(name: string, capability: DatabaseCapability, sampl
   const pk = capability.keyField;
   const autoFields = fieldsFromRows(sample, pk);
   const hasPatient = sample.some((row) => 'PatNum' in row) || Boolean(base?.params.some((p) => p.name === 'PatNum'));
-  const createFields = base?.create ? fromDatabase(base.create) : autoFields;
-  const updateFields = base?.update ? fromDatabase(base.update.fields) : autoFields;
+  // Hand-written definitions first, then Open Dental's documented fields, then (last resort) the synced data.
+  const createFields = base?.create ? fromDatabase(base.create)
+    : capability.createFields ? specFields(capability.createFields) : autoFields;
+  const updateFields = base?.update ? fromDatabase(base.update.fields)
+    : capability.updateFields ? specFields(capability.updateFields) : autoFields;
   const writable = capability.create || capability.update || capability.delete;
 
   return {

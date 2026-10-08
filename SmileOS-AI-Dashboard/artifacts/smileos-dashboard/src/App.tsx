@@ -10,8 +10,12 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import AppointmentsScreen from './AppointmentsScreen';
+import OpenDentalSelection from './components/OpenDentalSelection';
 import ApiCatalogScreen from './ApiCatalogScreen';
 import AllergiesScreen from './AllergiesScreen';
+import AdjustmentsScreen from './AdjustmentsScreen';
+import AccountModulesScreen from './AccountModulesScreen';
+import UserodsScreen from './UserodsScreen';
 import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
 import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsScreen from './PatientsScreen';
@@ -147,7 +151,9 @@ function Sidebar({
   const visibleResources = useVisibleResources();
   const canOpen = (resource: string) => resource === 'ChartModules'
     ? can('CLINICAL_READ')
-    : Boolean(visibleResources?.has(resource.toLowerCase()));
+    : resource === 'AccountModules'
+      ? can('BILLING_READ')
+      : Boolean(visibleResources?.has(resource.toLowerCase()));
 
   return (
     <>
@@ -302,6 +308,7 @@ function App() {
             <kbd className="absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] text-slate-400 sm:inline">⌘ K</kbd>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+            {can('PATIENTS_READ') && <OpenDentalSelection onOpen={(patient) => { setSearch(patient.name || String(patient.patNum)); setActiveNav('Patients'); }} />}
             <div className="relative">
               <button onClick={() => setNoticeOpen((value) => !value)} data-testid="button-notifications" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-800"><Bell size={18} strokeWidth={1.8} /><span className="absolute right-[8px] top-[7px] h-2 w-2 rounded-full border-2 border-[#f8f9fc] bg-rose-500" /></button>
               {noticeOpen && <div className="absolute right-0 top-12 z-50 w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl" data-testid="panel-notifications"><div className="flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Notifications</p><button onClick={() => { setNoticeOpen(false); announce('All caught up.'); }} className="text-[10px] font-semibold text-blue-600" data-testid="button-mark-read">Mark all read</button></div><div className="mt-4 space-y-3"><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Nisha Patel confirmed her 9:45 appointment.</p><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />3 invoices are due for follow-up today.</p></div></div>}
@@ -346,6 +353,12 @@ function App() {
               ? <AllergyDefinitionsScreen />
             : selectedApiResource === 'DiseaseDefs'
               ? <DiseaseDefinitionsScreen />
+            : selectedApiResource === 'Adjustments'
+              ? <AdjustmentsScreen />
+            : selectedApiResource === 'AccountModules'
+              ? <AccountModulesScreen />
+            : selectedApiResource === 'Userods'
+              ? <UserodsScreen />
             : databaseResource
               ? <DatabaseResourceScreen key={databaseResource} name={databaseResource} />
               : <ApiCatalogScreen selectedResource={selectedApiResource} />

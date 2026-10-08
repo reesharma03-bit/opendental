@@ -142,7 +142,11 @@ final class OdResourceCatalog {
             list("employees", "EmployeeNum"),
             list("employers", "EmployerNum"),
             list("quickpastecats", "QuickPasteCatNum"),
-            list("quickpastenotes", "QuickPasteNoteNum"));
+            list("quickpastenotes", "QuickPasteNoteNum"),
+            // Open Dental's own users and their security groups (hidden users included)
+            list("usergroups", "UserGroupNum"),
+            list("usergroupattaches", "UserGroupAttachNum"),
+            list("userods", "UserNum", Map.of("includeHidden", "true")));
 
     /**
      * Resources Open Dental only returns per patient or per parent record: one call per
@@ -240,7 +244,7 @@ final class OdResourceCatalog {
             Map.entry("benefits", ops("CUD")),
             Map.entry("carriers", ops("CU")),
             Map.entry("claimpayments", ops("CUD")),
-            Map.entry("claimprocs", ops("D")),
+            Map.entry("claimprocs", ops("UD")),
             Map.entry("claims", ops("CUD")),
             Map.entry("claimtrackings", ops("CU")),
             Map.entry("covcats", ops("CU")),
@@ -258,6 +262,25 @@ final class OdResourceCatalog {
             Map.entry("payplancharges", ops("CUD")),
             Map.entry("payplanlinks", ops("CUD")),
             Map.entry("paysplits", ops("U")),
+            // Open Dental has no DELETE for adjustments
+            Map.entry("adjustments", ops("CU")),
+            // Communication, referrals, labs, forms, tasks and practice setup (see OdWriteSpecs)
+            Map.entry("commlogs", ops("CU")),
+            Map.entry("employers", ops("CUD")),
+            Map.entry("referrals", ops("CU")),
+            Map.entry("refattaches", ops("CUD")),
+            Map.entry("labcases", ops("CUD")),
+            Map.entry("laboratories", ops("CU")),
+            Map.entry("labturnarounds", ops("CU")),
+            Map.entry("sheets", ops("C")),
+            Map.entry("sheetfields", ops("U")),
+            Map.entry("tasks", ops("CU")),
+            Map.entry("tasknotes", ops("CU")),
+            Map.entry("definitions", ops("CU")),
+            Map.entry("employees", ops("CU")),
+            Map.entry("providers", ops("CU")),
+            // Open Dental users: no DELETE (hide instead); created straight in Open Dental, see DatabaseResourceService
+            Map.entry("userods", ops("CU")),
             Map.entry("statements", ops("CD")),
             Map.entry("substitutionlinks", ops("CUD")),
             // Webhook subscriptions
@@ -311,7 +334,7 @@ final class OdResourceCatalog {
             "appointmenttypes", "apptfielddefs", "autonotecontrols", "autonotes", "codegroups", "procedurecodes",
             "carriers", "claimforms", "covcats", "covspans", "discountplans", "fees", "feescheds", "subscriptions",
             "definitions", "referrals", "laboratories", "labturnarounds", "sheetdefs", "sheetfielddefs",
-            "employees", "employers", "quickpastecats", "quickpastenotes");
+            "employees", "employers", "quickpastecats", "quickpastenotes", "usergroups", "usergroupattaches", "userods");
 
     /** Everything else (clinical records, insurance, billing) is WARM. */
     static Tier tier(String resource) {

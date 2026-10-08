@@ -24,7 +24,6 @@ USER appuser
 EXPOSE 8080
 
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom" \
-    SPRING_PROFILES_ACTIVE=dev \
     SUPABASE_DB_URL=jdbc:postgresql://host.docker.internal:5432/opendental?sslmode=disable \
     SUPABASE_DB_USERNAME=postgres \
     SUPABASE_DB_PASSWORD=postgres

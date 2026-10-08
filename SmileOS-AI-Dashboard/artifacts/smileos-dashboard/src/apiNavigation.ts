@@ -38,13 +38,17 @@ export const apiNavigationGroups = [
   {
     label: 'Insurance & Billing',
     resources: [
-      'Adjustments', 'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
+      'AccountModules', 'Adjustments', 'Benefits', 'Carriers', 'ClaimForms', 'ClaimPayments',
       'ClaimProcs', 'Claims', 'ClaimTrackings', 'CovCats', 'CovSpans',
       'Deposits', 'DiscountPlans', 'DiscountPlanSubs', 'EobAttaches', 'Etranss',
       'Fees', 'FeeScheds', 'InsPlans', 'InsSubs', 'InsVerifies', 'Payments',
       'PayPlanCharges', 'PayPlanLinks', 'PayPlans', 'PaySplits',
       'Statements', 'SubstitutionLinks',
     ],
+  },
+  {
+    label: 'Users & Security',
+    resources: ['Userods', 'UserGroups', 'UserGroupAttaches'],
   },
   {
     label: 'Tasks & Practice Setup',

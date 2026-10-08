@@ -5,10 +5,10 @@
 // with a global SNAKE_CASE strategy but Open Dental itself emits PascalCase,
 // so every mapper below accepts snake_case, camelCase and PascalCase keys.
 
-export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '';
+export const BACKEND_URL = (import.meta.env?.VITE_BACKEND_URL as string | undefined) ?? '';
 
 export function backendAvailable(): boolean {
-  return (import.meta.env.VITE_BACKEND_OFFLINE as string | undefined) !== '1';
+  return (import.meta.env?.VITE_BACKEND_OFFLINE as string | undefined) !== '1';
 }
 
 export type Raw = Record<string, unknown>;

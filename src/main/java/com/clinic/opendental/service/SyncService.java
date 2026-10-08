@@ -56,6 +56,16 @@ import com.clinic.opendental.repository.ref.PatFieldRepository;
 import com.clinic.opendental.repository.ref.ProviderRepository;
 import com.clinic.opendental.repository.ref.ScheduleRepository;
 import com.clinic.opendental.repository.ref.ToothInitialRepository;
+import com.clinic.opendental.repository.ref.LabCaseRepository;
+import com.clinic.opendental.repository.ref.MedicationPatRepository;
+import com.clinic.opendental.model.ref.LabCase;
+import com.clinic.opendental.model.ref.LabCaseId;
+import com.clinic.opendental.model.ref.MedicationPat;
+import com.clinic.opendental.model.ref.MedicationPatId;
+import com.clinic.opendental.dto.labcase.LabCaseResponse;
+import com.clinic.opendental.dto.labcasedeleted.LabCaseDeletedResponse;
+import com.clinic.opendental.dto.medicationpat.MedicationPatResponse;
+import com.clinic.opendental.dto.medicationpatdeleted.MedicationPatDeletedResponse;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,6 +85,8 @@ public class SyncService {
     private final ProviderRepository providerRepository;
     private final ScheduleRepository scheduleRepository;
         private final ToothInitialRepository toothInitialRepository;
+    private final LabCaseRepository labCaseRepository;
+    private final MedicationPatRepository medicationPatRepository;
     private final OpenDentalClient client;
 
     /** Optional so code that builds this service by hand need not supply it. */
@@ -837,6 +849,152 @@ public class SyncService {
         }
     }
 
+    /** Save a LabCase DTO received from a webhook payload (no API fetch). */
+    @Transactional
+    public SyncResult saveLabCaseFromDto(LabCaseResponse dto, String clinicCode) {
+        Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
+                .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
+        try {
+            if (dto.getLabCaseNum() == null) {
+                return SyncResult.failure("LabCase record is missing LabCaseNum");
+            }
+            labCaseRepository.save(toLabCaseEntity(dto, clinic.getId()));
+            return new SyncResult(1, 0, "Saved lab case " + dto.getLabCaseNum() + " from clinic " + clinicCode);
+        } catch (Exception e) {
+            log.error("Failed to save lab case record from webhook: {}", e.getMessage());
+            return SyncResult.failure("Failed to save lab case " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle a LabCaseDeleted DTO received from a webhook payload (no API fetch).
+     * Soft-deletes the matching lab_cases row (keyed by lab_case_num).
+     */
+    @Transactional
+    public SyncResult saveLabCaseDeletedFromDto(LabCaseDeletedResponse dto, String clinicCode) {
+        Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
+                .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
+        try {
+            if (dto.getLabCaseNum() == null) {
+                return SyncResult.failure("LabCaseDeleted record is missing LabCaseNum");
+            }
+            LabCase labCase = labCaseRepository.findById(new LabCaseId(clinic.getId(), dto.getLabCaseNum())).orElse(null);
+            if (labCase == null) {
+                log.warn("No lab case {} found for clinic {}; cannot apply deletion.", dto.getLabCaseNum(), clinicCode);
+                return SyncResult.failure("Lab case " + dto.getLabCaseNum() + " not found for clinic " + clinicCode);
+            }
+            labCase.setIsDeleted(true);
+            labCase.setDeletedBy(dto.getDeletedBy());
+            labCase.setDeletedAt(dto.getDateTimeDeleted() == null ? LocalDateTime.now() : parseDeleteDateTime(dto.getDateTimeDeleted()));
+            labCaseRepository.save(labCase);
+            return new SyncResult(1, 0, "Marked lab case " + dto.getLabCaseNum() + " as deleted from clinic " + clinicCode);
+        } catch (Exception e) {
+            log.error("Failed to update lab case deleted record from webhook: {}", e.getMessage());
+            return SyncResult.failure("Failed to update lab case deleted " + e.getMessage());
+        }
+    }
+
+    /** Save a MedicationPat DTO received from a webhook payload (no API fetch). */
+    @Transactional
+    public SyncResult saveMedicationPatFromDto(MedicationPatResponse dto, String clinicCode) {
+        Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
+                .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
+        try {
+            if (dto.getMedicationPatNum() == null) {
+                return SyncResult.failure("MedicationPat record is missing MedicationPatNum");
+            }
+            medicationPatRepository.save(toMedicationPatEntity(dto, clinic.getId()));
+            return new SyncResult(1, 0, "Saved medication " + dto.getMedicationPatNum() + " from clinic " + clinicCode);
+        } catch (Exception e) {
+            log.error("Failed to save medication record from webhook: {}", e.getMessage());
+            return SyncResult.failure("Failed to save medication " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle a MedicationPatDeleted DTO received from a webhook payload (no API fetch).
+     * Soft-deletes the matching medication_pats row (keyed by medication_pat_num).
+     */
+    @Transactional
+    public SyncResult saveMedicationPatDeletedFromDto(MedicationPatDeletedResponse dto, String clinicCode) {
+        Clinic clinic = clinicRepository.findByClinicCode(clinicCode)
+                .orElseThrow(() -> new IllegalArgumentException("Clinic not found: " + clinicCode));
+        try {
+            if (dto.getMedicationPatNum() == null) {
+                return SyncResult.failure("MedicationPatDeleted record is missing MedicationPatNum");
+            }
+            MedicationPat medication = medicationPatRepository
+                    .findById(new MedicationPatId(clinic.getId(), dto.getMedicationPatNum())).orElse(null);
+            if (medication == null) {
+                log.warn("No medication {} found for clinic {}; cannot apply deletion.", dto.getMedicationPatNum(), clinicCode);
+                return SyncResult.failure("Medication " + dto.getMedicationPatNum() + " not found for clinic " + clinicCode);
+            }
+            medication.setIsDeleted(true);
+            medication.setDeletedBy(dto.getDeletedBy());
+            medication.setDeletedAt(dto.getDateTimeDeleted() == null ? LocalDateTime.now() : parseDeleteDateTime(dto.getDateTimeDeleted()));
+            medicationPatRepository.save(medication);
+            return new SyncResult(1, 0, "Marked medication " + dto.getMedicationPatNum() + " as deleted from clinic " + clinicCode);
+        } catch (Exception e) {
+            log.error("Failed to update medication deleted record from webhook: {}", e.getMessage());
+            return SyncResult.failure("Failed to update medication deleted " + e.getMessage());
+        }
+    }
+
+    private LabCase toLabCaseEntity(LabCaseResponse dto, UUID clinicId) {
+        return LabCase.builder()
+                .id(new LabCaseId(clinicId, dto.getLabCaseNum()))
+                .patNum(dto.getPatNum())
+                .laboratoryNum(dto.getLaboratoryNum())
+                .aptNum(dto.getAptNum())
+                .plannedAptNum(dto.getPlannedAptNum())
+                .dateTimeDue(odDateTime(dto.getDateTimeDue()))
+                .dateTimeCreated(odDateTime(dto.getDateTimeCreated()))
+                .dateTimeSent(odDateTime(dto.getDateTimeSent()))
+                .dateTimeRecd(odDateTime(dto.getDateTimeRecd()))
+                .dateTimeChecked(odDateTime(dto.getDateTimeChecked()))
+                .provNum(dto.getProvNum())
+                .instructions(dto.getInstructions() == null ? "" : dto.getInstructions())
+                .labFee(dto.getLabFee() == null ? null : java.math.BigDecimal.valueOf(dto.getLabFee()))
+                .invoiceNum(dto.getInvoiceNum() == null ? "" : dto.getInvoiceNum())
+                .dateTStamp(odDateTime(dto.getDateTStamp()))
+                .isDeleted(false)
+                .build();
+    }
+
+    private MedicationPat toMedicationPatEntity(MedicationPatResponse dto, UUID clinicId) {
+        return MedicationPat.builder()
+                .id(new MedicationPatId(clinicId, dto.getMedicationPatNum()))
+                .patNum(dto.getPatNum())
+                .medicationNum(dto.getMedicationNum())
+                .medName(dto.getMedName() == null ? "" : dto.getMedName())
+                .patNote(dto.getPatNote() == null ? "" : dto.getPatNote())
+                .dateStart(odDate(dto.getDateStart()))
+                .dateStop(odDate(dto.getDateStop()))
+                .provNum(dto.getProvNum())
+                .isDeleted(false)
+                .build();
+    }
+
+    /** Open Dental's "yyyy-MM-dd HH:mm:ss"; its "no date" (0001-01-01) and anything unreadable become null. */
+    private static LocalDateTime odDateTime(String raw) {
+        if (raw == null || raw.isBlank() || raw.startsWith("0001-01-01")) return null;
+        try {
+            return LocalDateTime.parse(raw.trim().replace('T', ' '), DATETIME_FORMAT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static java.time.LocalDate odDate(String raw) {
+        if (raw == null || raw.isBlank() || raw.startsWith("0001-01-01")) return null;
+        try {
+            String text = raw.trim();
+            return java.time.LocalDate.parse(text.substring(0, Math.min(10, text.length())));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     // ========================================================================
     // Data access helpers
     // ========================================================================
@@ -1241,8 +1399,9 @@ public class SyncService {
      * Result record for sync operations.
      */
     public record SyncResult(int syncedCount, int failedCount, String message) {
+        /** One failure: counted as failed (not as saved), so webhook and sync totals add up. */
         public static SyncResult failure(String message) {
-            return new SyncResult(0, 0, message);
+            return new SyncResult(0, 1, message);
         }
     }
 }

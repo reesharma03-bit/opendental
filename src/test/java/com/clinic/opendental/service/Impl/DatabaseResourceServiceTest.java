@@ -52,6 +52,33 @@ class DatabaseResourceServiceTest {
     }
 
     @Test
+    void anOpenDentalUserIsCreatedDirectlyAndItsPasswordIsNeverKept() throws Exception {
+        when(client.sendRaw(eq(org.springframework.http.HttpMethod.POST), eq("/userods"), any(), any(), any()))
+                .thenReturn(JSON.readTree("""
+                        {"UserNum":7,"UserName":"Sally","EmployeeNum":0,"ProviderNum":0,"ClinicNum":0,"IsHidden":"false",
+                         "UserGroupNum":2,"Password":"My1password","IsPasswordResetRequired":"false"}"""));
+
+        JsonNode created = service.create("userods", Map.of("UserName", "Sally", "UserGroupNum", 2, "Password", "My1password"));
+
+        assertThat(created.has("Password")).isFalse();
+        assertThat(created.path("userGroupNums").get(0).asLong()).isEqualTo(2);
+        ArgumentCaptor<ObjectNode> saved = ArgumentCaptor.forClass(ObjectNode.class);
+        verify(records).save(eq(CLINIC.getId()), eq("userods"), eq("7"), saved.capture());
+        assertThat(saved.getValue().toString()).doesNotContain("My1password");
+        verifyNoInteractions(odSync); // the password never waits in the outbox
+    }
+
+    @Test
+    void aWeakPasswordOrAnUnchangeableFieldIsRefusedBeforeOpenDentalIsCalled() {
+        assertThatThrownBy(() -> service.create("userods", Map.of("UserName", "Sally", "UserGroupNum", 2, "Password", "password")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("at least 8 characters");
+        when(records.find(CLINIC.getId(), "userods", "7")).thenReturn(Optional.of(JSON.createObjectNode().put("UserNum", 7)));
+        assertThatThrownBy(() -> service.update("userods", "7", Map.of("UserName", "Bob")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("change it in Open Dental");
+        verifyNoInteractions(client);
+    }
+
+    @Test
     void listsReadOnlyFromOurDatabase() {
         when(records.list(CLINIC.getId(), "carriers", null, 100, 0)).thenReturn(List.of(JSON.createObjectNode()));
 

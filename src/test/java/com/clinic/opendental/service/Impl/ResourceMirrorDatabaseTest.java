@@ -45,7 +45,7 @@ class ResourceMirrorDatabaseTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(System.getenv("SYNC_TEST_DB_URL"));
         jdbc = new JdbcTemplate(dataSource);
         client = mock(OpenDentalClient.class);
-        service = new ResourceMirrorService(client, jdbc, new DataSourceTransactionManager(dataSource), 0);
+        service = new ResourceMirrorService(client, jdbc, new DataSourceTransactionManager(dataSource));
         clinic = Clinic.builder().id(UUID.randomUUID()).clinicCode("T" + System.nanoTime()).baseUrl("http://od").apiKey("k").build();
         jdbc.update("INSERT INTO clinics (id, clinic_name, clinic_code, base_url) VALUES (?, 'Test', ?, 'http://od')",
                 clinic.getId(), clinic.getClinicCode());
@@ -167,6 +167,44 @@ class ResourceMirrorDatabaseTest {
                 Long.class, clinic.getId())).containsExactlyInAnyOrder(booked, dormant);
         jdbc.update("DELETE FROM appointments WHERE clinic_id = ?", clinic.getId());
         jdbc.update("DELETE FROM patients WHERE clinic_id = ?", clinic.getId());
+    }
+
+    @Test
+    void webhookRowsAreSavedAndDeletionsRemovedButPendingChangesAreKept() throws Exception {
+        java.util.List<com.fasterxml.jackson.databind.JsonNode> labCases = java.util.List.of(
+                JSON.readTree("{\"LabCaseNum\":5,\"PatNum\":48,\"Instructions\":\"Crown\"}"),
+                JSON.readTree("{\"LabCaseNum\":6,\"PatNum\":48,\"Instructions\":\"Bridge\"}"));
+
+        assertThat(service.applyWebhookRows(clinic, "labcases", labCases)).isEqualTo(2);
+        assertThat(service.applyWebhookRows(clinic, "labcases", labCases)).as("unchanged rows are not rewritten").isZero();
+
+        // Lab case 6 was edited in the dashboard and hasn't reached Open Dental yet.
+        jdbc.update("INSERT INTO od_sync_queue (clinic_id, entity_type, operation, local_id) VALUES (?, 'resource:labcases', 'UPDATE', 6)",
+                clinic.getId());
+        int removed = service.removeWebhookRows(clinic, "labcases",
+                java.util.List.of(JSON.readTree("{\"LabCaseNum\":5}"), JSON.readTree("{\"LabCaseNum\":6}")));
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT record_key FROM od_resource_records WHERE clinic_id = ? AND resource = 'labcases'",
+                String.class, clinic.getId())).containsExactly("6");
+    }
+
+    @Test
+    void labCasesAlsoFillTheirOwnTable() throws Exception {
+        Integer tables = jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_name = 'lab_cases'", Integer.class);
+        org.junit.jupiter.api.Assumptions.assumeTrue(tables != null && tables > 0, "supabase-lab-cases-medication-pats.sql not loaded");
+
+        service.applyWebhookRows(clinic, "labcases", java.util.List.of(
+                JSON.readTree("{\"LabCaseNum\":226,\"PatNum\":33,\"DateTimeDue\":\"0001-01-01 00:00:00\",\"DateTimeSent\":\"2022-10-03 14:24:12\",\"LabFee\":12.5,\"Instructions\":\"Crown\"}")));
+        assertThat(jdbc.queryForObject("SELECT instructions FROM lab_cases WHERE clinic_id = ? AND lab_case_num = 226", String.class, clinic.getId()))
+                .isEqualTo("Crown");
+        assertThat(jdbc.queryForObject("SELECT date_time_due IS NULL FROM lab_cases WHERE clinic_id = ? AND lab_case_num = 226", Boolean.class, clinic.getId()))
+                .isTrue();
+
+        service.removeWebhookRows(clinic, "labcases", java.util.List.of(JSON.readTree("{\"LabCaseNum\":226}")));
+        assertThat(jdbc.queryForObject("SELECT is_deleted FROM lab_cases WHERE clinic_id = ? AND lab_case_num = 226", Boolean.class, clinic.getId()))
+                .as("soft-deleted when it leaves Open Dental").isTrue();
+        jdbc.update("DELETE FROM lab_cases WHERE clinic_id = ?", clinic.getId());
     }
 
     private ResourceMirrorService.Result sync() {

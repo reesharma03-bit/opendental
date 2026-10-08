@@ -1,7 +1,7 @@
 // Pure, documentation-derived metadata for the Patients & Families resources.
 // Source: Open Dental API docs. Local routes mirror official routes with /api prefix.
 
-export type FieldKind = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'bool' | 'patient' | 'lookup';
+export type FieldKind = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'bool' | 'patient' | 'lookup' | 'list';
 
 export interface Lookup { resource: string; path: string; valueKey: string; labelKeys: string[] }
 
@@ -519,6 +519,7 @@ export function buildBody(fields: FieldMeta[], draft: Record<string, string>, or
       }
     }
     if (raw === '') continue;
+    if (f.kind === 'list') { body[f.name] = raw.split(/[\s,]+/).filter(Boolean).map(Number); continue; }
     if (f.kind === 'number' || (f.kind === 'lookup' && f.lookup?.valueKey !== 'FieldName' && /^-?\d+(\.\d+)?$/.test(raw))) body[f.name] = Number(raw);
     else if (f.kind === 'patient') body[f.name] = Number(raw);
     else if (f.kind === 'datetime') body[f.name] = raw.replace('T', ' ').replace(/^(\d{4}-\d\d-\d\d \d\d:\d\d)$/, '$1:00');
@@ -530,6 +531,7 @@ export function buildBody(fields: FieldMeta[], draft: Record<string, string>, or
 /** Normalize a returned value into the string held by a form control. */
 export function formValue(f: FieldMeta, v: unknown): string {
   if (v === undefined || v === null) return '';
+  if (Array.isArray(v)) return v.join(', ');
   if (f.kind === 'bool') return String(v) === 'true' || v === true ? 'true' : String(v) === 'false' || v === false ? 'false' : '';
   const str = String(v);
   if (str.startsWith('0001-01-01')) return '';

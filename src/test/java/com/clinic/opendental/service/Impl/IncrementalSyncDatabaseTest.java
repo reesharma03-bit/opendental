@@ -49,7 +49,7 @@ class IncrementalSyncDatabaseTest {
         DataSourceTransactionManager transactions = new DataSourceTransactionManager(dataSource);
         jdbc = new JdbcTemplate(dataSource);
         client = mock(OpenDentalClient.class);
-        ResourceMirrorService mirror = new ResourceMirrorService(client, jdbc, transactions, 0);
+        ResourceMirrorService mirror = new ResourceMirrorService(client, jdbc, transactions);
         cursors = new SyncCursors(jdbc, transactions);
         FullSyncService fullSync = mock(FullSyncService.class);
         clinic = Clinic.builder().id(UUID.randomUUID()).clinicCode("T" + System.nanoTime()).baseUrl("http://od").apiKey("k").build();
