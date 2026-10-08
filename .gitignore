@@ -6,3 +6,6 @@ target/
 # Runtime / build logs
 *.log
 *.err
+# Local tools and personal editor launch settings (may hold secrets)
+.tools/
+.vscode/launch.json
