@@ -1,7 +1,8 @@
+import LoadingPanel from './components/LoadingPanel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BellRing, CalendarDays, Check, CheckCircle2, ChevronDown,
-  ChevronLeft, ChevronRight, CircleAlert, CircleDollarSign, ClipboardList, Clock3, FileText, LoaderCircle, Minus,
+  ChevronLeft, ChevronRight, CircleAlert, CircleDollarSign, ClipboardList, Clock3, FileText, Minus,
   RefreshCw, ShieldCheck, Stethoscope, UserRoundPlus, Users, Wallet,
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -183,7 +184,7 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
           <button type="button" onClick={() => void load()} className="rounded-lg border border-rose-300 px-3 py-1 font-bold hover:bg-rose-100">Retry</button>
         </div>
       )}
-      {!data && !error && <div className="flex items-center gap-2 py-10 text-[12px] text-slate-500"><LoaderCircle size={16} className="animate-spin text-blue-600" /> Loading practice data…</div>}
+      {!data && !error && <LoadingPanel testId="dashboard-loading" />}
 
       {data && (
         <>

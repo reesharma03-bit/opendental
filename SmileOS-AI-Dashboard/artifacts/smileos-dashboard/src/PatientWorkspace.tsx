@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Activity, AlertTriangle, CalendarDays, Check, CircleAlert, FileText, HeartPulse, Image, LoaderCircle,
+  Activity, AlertTriangle, CalendarDays, Check, CircleAlert, FileText, HeartPulse, Image,
   ShieldAlert, Stethoscope, Wallet, X,
 } from 'lucide-react';
 import {
@@ -8,6 +8,7 @@ import {
   PROC_STATUS, type Row,
 } from './lib/backendPatientRecord';
 import { formatMoney, getAging, type Aging } from './lib/backendAccountModules';
+import SectionLoading from './components/SectionLoading';
 
 /** The parts of a patient the directory already holds (shown at once, before anything loads). */
 export interface WorkspacePatient {
@@ -67,6 +68,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const p = patient.patNum;
   const on = (id: TabId) => activeTab === id;
+  const loadingLabel = `Loading ${(tabs.find((t) => t.id === activeTab)?.label ?? 'record').toLowerCase()}`;
 
   const profile = useSection(async () => ({
     notes: (await listForPatient('patientnotes', p))[0] ?? null,
@@ -140,7 +142,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           <h3 className="mb-4 text-lg font-bold text-slate-900">{tabs.find((t) => t.id === activeTab)?.label}</h3>
 
           {on('profile') && (
-            <Loaded state={profile}>{(d) => (
+            <Loaded label={loadingLabel} state={profile}>{(d) => (
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(240px,.8fr)]">
                 <Card title="Details">
                   <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -179,7 +181,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('timeline') && (
-            <Loaded state={timeline}>{(d) => (
+            <Loaded label={loadingLabel} state={timeline}>{(d) => (
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card title={`Appointments (${d.appointments.length})`}>
                   <Table rows={d.appointments} empty="No appointments." cols={[
@@ -201,7 +203,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('history') && (
-            <Loaded state={history}>{(d) => (
+            <Loaded label={loadingLabel} state={history}>{(d) => (
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card title={`Allergies (${d.allergies.length})`} tone={d.allergies.some((r) => field(r, 'StatusIsActive') !== 'false') ? 'rose' : undefined}>
                   <Table rows={d.allergies} empty="No allergies recorded." cols={[
@@ -242,7 +244,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('plans') && (
-            <Loaded state={plans}>{(d) => (
+            <Loaded label={loadingLabel} state={plans}>{(d) => (
               <div className="space-y-4">
                 <Card title={`Treatment plans (${d.plans.length})`}>
                   <Table rows={d.plans} empty="No treatment plans." cols={[
@@ -266,7 +268,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('notes') && (
-            <Loaded state={notes}>{(d) => (
+            <Loaded label={loadingLabel} state={notes}>{(d) => (
               <div className="space-y-4">
                 <Card title={`Procedure notes (${d.procNotes.length})`}>
                   <Table rows={d.procNotes} empty="No procedure notes synced." cols={[
@@ -289,7 +291,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('images') && (
-            <Loaded state={images}>{(rows) => (
+            <Loaded label={loadingLabel} state={images}>{(rows) => (
               <Card title={`Documents and images (${rows.length})`}>
                 <Table rows={rows} empty="No documents for this patient." cols={[
                   ['Created', (r) => formatDate(field(r, 'DateCreated'))],
@@ -304,7 +306,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('billing') && (
-            <Loaded state={billing}>{(d) => (
+            <Loaded label={loadingLabel} state={billing}>{(d) => (
               <div className="space-y-4">
                 {d.aging ? (
                   <div className="grid gap-3 sm:grid-cols-4">
@@ -343,7 +345,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('insurance') && (
-            <Loaded state={insurance}>{(plansFound) => plansFound.length === 0 ? <Empty text="No insurance on file." /> : (
+            <Loaded label={loadingLabel} state={insurance}>{(plansFound) => plansFound.length === 0 ? <Empty text="No insurance on file." /> : (
               <div className="grid gap-4 xl:grid-cols-2">
                 {plansFound.map(({ pp, sub, plan, carrier }, i) => (
                   <Card key={i} title={`${Number(field(pp, 'Ordinal')) === 1 ? 'Primary' : Number(field(pp, 'Ordinal')) === 2 ? 'Secondary' : `Plan ${field(pp, 'Ordinal')}`} insurance`}>
@@ -365,7 +367,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('forms') && (
-            <Loaded state={forms}>{(rows) => (
+            <Loaded label={loadingLabel} state={forms}>{(rows) => (
               <Card title={`Forms (${rows.length})`}>
                 <Table rows={rows} empty="No forms for this patient." cols={[
                   ['Date', (r) => formatDateTime(field(r, 'DateTimeSheet'))],
@@ -377,7 +379,7 @@ export default function PatientWorkspace({ patient, onClose }: { patient: Worksp
           )}
 
           {on('chart') && (
-            <Loaded state={chart}>{(d) => <DentalChart initials={d.initials} procedures={d.procedures} />}</Loaded>
+            <Loaded label={loadingLabel} state={chart}>{(d) => <DentalChart initials={d.initials} procedures={d.procedures} />}</Loaded>
           )}
         </div>
       </div>
@@ -439,9 +441,9 @@ function DentalChart({ initials, procedures }: { initials: Row[]; procedures: Ro
   );
 }
 
-function Loaded<T>({ state, children }: { state: { data: T | null; error: string; loading: boolean }; children: (data: T) => ReactNode }) {
+function Loaded<T>({ state, label, children }: { state: { data: T | null; error: string; loading: boolean }; label: string; children: (data: T) => ReactNode }) {
   if (state.loading || (!state.data && !state.error)) {
-    return <div className="flex items-center gap-2 py-10 text-[12px] text-slate-500"><LoaderCircle size={16} className="animate-spin text-blue-600" /> Loading…</div>;
+    return <SectionLoading label={label} />;
   }
   if (state.error) {
     return <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[11px] font-medium text-rose-700"><CircleAlert size={15} className="mt-0.5 shrink-0" />{state.error}</div>;

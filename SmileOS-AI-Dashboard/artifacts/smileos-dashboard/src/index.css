@@ -494,3 +494,50 @@ table tbody tr { transition: transform 140ms ease, opacity 140ms ease; }
     inset: -1px;
   }
 }
+
+/* Loading panel (components/LoadingPanel.tsx): indeterminate bar and soft pulse. */
+@keyframes smileos-progress {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(260%); }
+}
+@keyframes smileos-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.35); opacity: 0; }
+}
+.smileos-progress { animation: smileos-progress 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+.smileos-pulse { animation: smileos-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .smileos-progress { animation: none; transform: none; width: 100%; opacity: 0.6; }
+  .smileos-pulse { animation: none; opacity: 0; }
+}
+
+/* Placeholder rows while a section loads (PatientWorkspace). */
+@keyframes smileos-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.smileos-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 40%, #f1f5f9 80%);
+  background-size: 800px 100%;
+  animation: smileos-shimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .smileos-shimmer { animation: none; }
+}
+
+/* Animated SmileOS mark (components/BrandMark.tsx): heartbeat traces itself, dot pulses. */
+@keyframes smileos-trace {
+  0% { stroke-dashoffset: 100; }
+  55% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -100; }
+}
+@keyframes smileos-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.75); }
+}
+.smileos-trace { animation: smileos-trace 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+.smileos-dot { transform-origin: 47px 15px; transform-box: view-box; animation: smileos-dot 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .smileos-trace { animation: none; stroke-dasharray: none; }
+  .smileos-dot { animation: none; }
+}

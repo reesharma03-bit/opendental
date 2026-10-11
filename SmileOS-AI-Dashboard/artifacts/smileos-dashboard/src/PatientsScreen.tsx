@@ -8,6 +8,7 @@ import { backendAvailable } from './lib/backend';
 import { request } from './lib/backend';
 import { createBackendPatient, listSupabasePatients, type BackendPatient } from './lib/backendPatients';
 import PatientWorkspace, { type WorkspacePatient } from './PatientWorkspace';
+import LoadingPanel from './components/LoadingPanel';
 
 function toRecord(p: BackendPatient): PatientRecord {
   return {
@@ -299,7 +300,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-patients">
-      {(syncing || saving || backendError) && (
+      {((syncing && patients.length > 0) || saving || backendError) && (
         <div data-testid="patients-backend-status" className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-semibold ${backendError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
           {syncing ? 'Loading patients from Supabase…' : saving ? 'Saving patient to Open Dental…' : `Patient database error — ${backendError}`}
         </div>
@@ -323,7 +324,11 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
 
       {openRecord && <PatientWorkspace key={openRecord.patNum} patient={openRecord} onClose={() => setOpenRecord(null)} />}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-patient-directory">
+      {syncing && patients.length === 0 && (
+        <LoadingPanel title="Loading your patients" steps={['Patient directory', 'Contact details', 'Patient statuses', 'Clinics']} testId="patients-loading" />
+      )}
+
+      <section className={`overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)] ${syncing && patients.length === 0 ? 'hidden' : ''}`} data-testid="section-patient-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div><div className="flex items-center gap-2"><h2 className="font-[Manrope] text-[15px] font-extrabold tracking-[-.3px] text-slate-800">Patient directory</h2><span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700" data-testid="text-patient-count">{patients.length}</span></div><p className="mt-1 text-[10px] text-slate-400">Supabase records · Add/Edit writes to Open Dental</p></div>
           <label className="relative block w-full sm:max-w-[310px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search name, ID, email or phone" aria-label="Search patients" data-testid="input-patient-search" className="h-10 w-full rounded-xl border border-slate-200 bg-[#fbfcfe] pl-9 pr-9 text-[11px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70" />{search && <button type="button" onClick={() => onSearchChange('')} aria-label="Clear patient search" data-testid="button-clear-patient-search" className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X size={13} /></button>}</label>
