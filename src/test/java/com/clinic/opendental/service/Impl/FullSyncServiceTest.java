@@ -141,6 +141,29 @@ class FullSyncServiceTest {
                 .hasMessageContaining("paused");
     }
 
+    @Test
+    void disconnectingStopsARunningSync() throws Exception {
+        ClinicRepository clinics = mock(ClinicRepository.class);
+        when(clinics.findByIsActiveTrue()).thenReturn(List.of(CLINIC));
+        ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
+        when(reconciliation.reconcileClinic(eq(CLINIC), any())).thenReturn(new ReconciliationSyncService.ReconciliationResult(0, 0, 0, "ok"));
+        ResourceMirrorService mirror = mock(ResourceMirrorService.class);
+        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), mock(JdbcTemplate.class),
+                mock(org.springframework.transaction.PlatformTransactionManager.class), mock(SyncControl.class), true);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> {
+            if (calls.incrementAndGet() == 2) service.stop("Disconnected");
+            return new ResourceMirrorService.Result(((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1, 0, null);
+        });
+
+        service.startFullSync("connect");
+        Map<String, Object> done = waitUntilFinished(service);
+
+        assertThat(done.get("state")).isEqualTo("paused");
+        assertThat(done.get("error")).isEqualTo("Disconnected");
+        verify(mirror, times(2)).sync(any(), any(), any(), any());
+    }
+
     private static Map<String, Object> waitUntilFinished(FullSyncService service) throws InterruptedException {
         for (int i = 0; i < 200 && service.isRunning(); i++) {
             Thread.sleep(25);

@@ -77,7 +77,7 @@ public class WebhookClinics {
      * The customer key part of an Open Dental key, whatever form it is written in:
      * "ODFHIR {DeveloperKey}/{CustomerKey}", "{DeveloperKey}/{CustomerKey}" or just the customer key.
      */
-    static String customerKey(String key) {
+    public static String customerKey(String key) {
         if (key == null) return "";
         String k = key.trim();
         if (k.regionMatches(true, 0, "ODFHIR ", 0, 7)) k = k.substring(7).trim();

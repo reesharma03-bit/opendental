@@ -6,6 +6,7 @@ import {
   RefreshCw, ShieldCheck, Stethoscope, UserRoundPlus, Users, Wallet,
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useAuth } from './auth/AuthContext';
 import { checkInAppointment, getDashboardSummary, type DashboardAppointment, type DashboardSummary } from './lib/backendDashboard';
 
 // Amounts are shown in the practice currency; Open Dental itself stores plain numbers.
@@ -80,6 +81,7 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const { can } = useAuth();
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
   const [period, setPeriod] = useState<'This week' | 'Last week'>('This week');
   const [page, setPage] = useState(0);
@@ -169,12 +171,13 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">{greeting}<span className="text-blue-600">.</span></h1>
           <p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Shown once the first load is done: nothing to refresh or act on before that. */}
+        {(data || error) && <div className="flex items-center gap-2">
           <button type="button" onClick={() => void load()} disabled={loading} data-testid="button-refresh-dashboard" className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 shadow-sm hover:border-slate-300 disabled:opacity-60">
             <RefreshCw size={14} className={`text-slate-400 ${loading ? 'animate-spin' : ''}`} /> {lastLoaded ? `Updated ${timeOf(lastLoaded.toISOString())}` : 'Loading…'}
           </button>
-          <button type="button" onClick={onNewAppointment} data-testid="button-new-appointment" className="flex h-9 items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><span className="text-[16px] font-normal leading-none">+</span> New appointment</button>
-        </div>
+          {can('APPOINTMENTS_WRITE') && <button type="button" onClick={onNewAppointment} data-testid="button-new-appointment" className="flex h-9 items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><span className="text-[16px] font-normal leading-none">+</span> New appointment</button>}
+        </div>}
       </section>
 
       {error && (

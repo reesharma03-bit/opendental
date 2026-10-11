@@ -43,6 +43,11 @@ public class OpenDentalConnection {
         return clinic;
     }
 
+    /** Forget the cached clinic, after the clinics row was changed. */
+    public void refresh() {
+        cached = null;
+    }
+
     /** The active clinic's Open Dental API address, without a trailing slash. */
     public String baseUrl() {
         Clinic clinic = clinic();

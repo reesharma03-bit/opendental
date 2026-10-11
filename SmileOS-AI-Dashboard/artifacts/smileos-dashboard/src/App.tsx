@@ -4,7 +4,7 @@ import {
   Bell, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, CreditCard, LayoutDashboard, BellRing,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
-  RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap, KeyRound, LogOut, UserCog,
+  PlugZap, RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap, KeyRound, LogOut, UserCog,
 } from 'lucide-react';
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -25,6 +25,7 @@ import HomeDashboard from './HomeDashboard';
 import AssistantPanel from './AssistantPanel';
 import UsersScreen from './UsersScreen';
 import SyncSettingsScreen from './SyncSettingsScreen';
+import OpenDentalScreen from './OpenDentalScreen';
 import { useAuth } from './auth/AuthContext';
 import { ChangePasswordForm } from './auth/SignInScreens';
 import { getCapabilities } from './lib/databaseResources';
@@ -41,6 +42,7 @@ const navItems: { label: string; icon: typeof Users; badge?: string; permission?
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
   { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
+  { label: 'Open Dental', icon: PlugZap, permission: 'SYNC_MANAGE' },
   { label: 'Subscription', icon: BellRing, permission: 'SYNC_MANAGE' },
   { label: 'Sync settings', icon: Settings, permission: 'SYNC_MANAGE' },
   { label: 'Users', icon: UserCog, permission: 'USERS_MANAGE' },
@@ -272,6 +274,7 @@ function App() {
         {activeNav === 'Subscription' && can('SYNC_MANAGE') && <SubscriptionScreen />}
         {activeNav === 'Users' && can('USERS_MANAGE') && <UsersScreen />}
         {activeNav === 'Sync settings' && can('SYNC_MANAGE') && <SyncSettingsScreen />}
+        {activeNav === 'Open Dental' && can('SYNC_MANAGE') && <OpenDentalScreen />}
         {can('APPOINTMENTS_READ') && (
           <div hidden={activeNav !== 'Appointments'}>
             <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />

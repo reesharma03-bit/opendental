@@ -56,6 +56,8 @@ public class FullSyncService {
     private final boolean enabled;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    /** Set by {@link #stop}: the running sync ends after the resource it is on. */
+    private volatile String stopReason;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "od-full-sync");
         thread.setDaemon(true);
@@ -103,10 +105,18 @@ public class FullSyncService {
         if (!running.compareAndSet(false, true)) {
             return status();
         }
+        stopReason = null;
         Run run = new Run(trigger, true);
         lastRun = run;
         executor.submit(() -> execute(run));
         return status();
+    }
+
+    /** Stops a running full sync after the resource it is on (e.g. the practice was disconnected). */
+    public void stop(String reason) {
+        if (running.get()) {
+            stopReason = reason;
+        }
     }
 
     public Map<String, Object> status() {
@@ -140,7 +150,7 @@ public class FullSyncService {
             run.total = chosen.values().stream().mapToInt(r -> r.size() + (run.full ? 1 : 0)).sum();
             for (Map.Entry<Clinic, List<Resource>> entry : chosen.entrySet()) {
                 if (!syncClinic(run, entry.getKey(), entry.getValue())) {
-                    run.stop("Paused" + pausedBy());
+                    run.stop(stopReason != null ? stopReason : "Paused" + pausedBy());
                     return;
                 }
             }
@@ -172,7 +182,7 @@ public class FullSyncService {
             failures += core.failedCount();
         }
         for (Resource resource : resources) {
-            if (control.paused()) {
+            if (control.paused() || stopReason != null) {
                 recordEnd(runId, records, failures, "stopped");
                 return false;
             }
