@@ -24,11 +24,11 @@ import DatabaseResourceScreen from './DatabaseResourceScreen';
 import HomeDashboard from './HomeDashboard';
 import AssistantPanel from './AssistantPanel';
 import UsersScreen from './UsersScreen';
+import SyncSettingsScreen from './SyncSettingsScreen';
 import { useAuth } from './auth/AuthContext';
 import { ChangePasswordForm } from './auth/SignInScreens';
 import { getCapabilities } from './lib/databaseResources';
 import type { Permission } from './lib/backendAuth';
-import { getSyncStatus, startForceSync, type SyncStatus } from './lib/backendSync';
 
 const initialResource = (() => {
   const name = new URLSearchParams(window.location.search).get('resource');
@@ -42,6 +42,7 @@ const navItems: { label: string; icon: typeof Users; badge?: string; permission?
   { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
   { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
   { label: 'Subscription', icon: BellRing, permission: 'SYNC_MANAGE' },
+  { label: 'Sync settings', icon: Settings, permission: 'SYNC_MANAGE' },
   { label: 'Users', icon: UserCog, permission: 'USERS_MANAGE' },
 ];
 
@@ -59,75 +60,6 @@ function useVisibleResources(): Set<string> | null {
     return () => { live = false; };
   }, [user?.id, user?.role]);
   return visible;
-}
-
-function syncSummary(status: SyncStatus | null): string {
-  if (!status || status.state === 'idle') return 'Copies all Open Dental data into the database.';
-  if (status.state === 'running') {
-    const progress = status.total ? ` (${status.done ?? 0}/${status.total})` : '';
-    return `Syncing${progress}${status.currentStep ? ` · ${status.currentStep}` : ''}`;
-  }
-  if (status.state === 'failed') return `Sync failed: ${status.error ?? 'unknown error'}`;
-  const records = (status.records ?? 0).toLocaleString();
-  const failures = status.failures ?? 0;
-  return failures
-    ? `Done · ${records} records · ${failures} resource${failures === 1 ? '' : 's'} failed`
-    : `Done · ${records} records`;
-}
-
-function ForceSyncButton() {
-  const [status, setStatus] = useState<SyncStatus | null>(null);
-  const [error, setError] = useState('');
-  const running = status?.state === 'running';
-
-  // Picks up a sync that is already running (nightly run, another tab).
-  useEffect(() => {
-    getSyncStatus().then(setStatus).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = window.setInterval(() => {
-      getSyncStatus().then(setStatus).catch((e: Error) => setError(e.message));
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [running]);
-
-  const start = async () => {
-    setError('');
-    try {
-      setStatus(await startForceSync());
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const failed = status?.results?.filter((r) => r.status === 'failed') ?? [];
-  const summary = error || syncSummary(status);
-
-  return (
-    <div className="mb-2">
-      <button
-        type="button"
-        onClick={start}
-        disabled={running}
-        title={failed.length ? failed.map((r) => `${r.resource}: ${r.error ?? 'failed'}`).join('\n') : summary}
-        data-testid="button-force-refresh"
-        aria-busy={running}
-        className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-wait disabled:text-blue-700"
-      >
-        <RefreshCw size={14} className={`shrink-0 ${running ? 'animate-spin' : ''}`} />
-        <span>{running ? 'Syncing…' : 'Force Sync'}</span>
-      </button>
-      <p
-        data-testid="text-force-sync-status"
-        aria-live="polite"
-        className={`px-3 text-[10px] leading-snug ${error || status?.state === 'failed' ? 'text-rose-600' : failed.length ? 'text-amber-600' : 'text-slate-400'}`}
-      >
-        {summary}
-      </p>
-    </div>
-  );
 }
 
 function Sidebar({
@@ -188,7 +120,6 @@ function Sidebar({
           </nav>
           <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed ? 'md:hidden' : ''}`}>
             <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Open Dental API</p>
-            {can('SYNC_MANAGE') && <ForceSyncButton />}
             <nav aria-label="Open Dental API resources" className="space-y-1">
               {apiNavigationGroups.map(({ label, resources: allResources }) => {
                 const resources = allResources.filter(canOpen);
@@ -340,6 +271,7 @@ function App() {
         {activeNav === 'Patients' && can('PATIENTS_READ') && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
         {activeNav === 'Subscription' && can('SYNC_MANAGE') && <SubscriptionScreen />}
         {activeNav === 'Users' && can('USERS_MANAGE') && <UsersScreen />}
+        {activeNav === 'Sync settings' && can('SYNC_MANAGE') && <SyncSettingsScreen />}
         {can('APPOINTMENTS_READ') && (
           <div hidden={activeNav !== 'Appointments'}>
             <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />

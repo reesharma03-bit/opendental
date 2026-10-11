@@ -4,6 +4,7 @@ import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.service.Impl.CoreChangeSync;
 import com.clinic.opendental.service.Impl.FullSyncService;
+import com.clinic.opendental.service.Impl.SyncControl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,19 +29,20 @@ public class ReconciliationScheduler {
     private final ClinicRepository clinicRepository;
     private final CoreChangeSync coreChangeSync;
     private final FullSyncService fullSyncService;
+    private final SyncControl syncControl;
 
     @Value("${reconciliation.enabled:true}")
     private boolean enabled;
 
     @Scheduled(cron = "${reconciliation.cron:0 * * * * *}")
     public void reconcileAll() {
-        if (!enabled || fullSyncService.isRunning()) {
+        if (!enabled || syncControl.paused() || fullSyncService.isRunning()) {
             return;
         }
         long start = System.currentTimeMillis();
         for (Clinic clinic : clinicRepository.findByIsActiveTrue()) {
             try {
-                coreChangeSync.pull(clinic);
+                coreChangeSync.pull(clinic, table -> !syncControl.skips(clinic, table));
             } catch (Exception e) {
                 log.warn("Change pull for clinic {} failed: {}", clinic.getClinicCode(), e.getMessage());
             }

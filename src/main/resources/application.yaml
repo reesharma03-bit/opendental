@@ -1,11 +1,6 @@
 opendental:
-  # Used only when a clinic row has no base_url of its own.
-  base-url: ${OPENDENTAL_BASE_URL:http://localhost:30223/api/v1}
-  # Open Dental rejects every request that has no Authorization header with
-  # 400 "Malformed API request.". Expected format:
-  #   ODFHIR <DeveloperKey>/<CustomerKey>
-  # Used when a clinic row has no api_key of its own.
-  api-key: ${OPENDENTAL_API_KEY:}
+  # Each practice's Open Dental address and key (ODFHIR <DeveloperKey>/<CustomerKey>)
+  # live in its clinics row (base_url, api_key), not here.
   # Open Dental allows 1 request per second per API key, or 1 per 5 seconds when the key
   # only has read access (ApiReadAll): set 5000 for such keys. Shared by every call.
   min-request-interval-ms: ${OPENDENTAL_MIN_REQUEST_INTERVAL_MS:1000}

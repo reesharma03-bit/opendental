@@ -1,7 +1,7 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.config.OpenDentalConnection;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -58,12 +58,13 @@ public class PatientFamilyResourcesController {
             Map.entry("rxpats", Set.of("PatNum", "Offset")),
             Map.entry("vitalsigns", Set.of("PatNum", "Offset")));
 
-    @Value("${opendental.base-url}")
-    private String baseUrl;
+    /** The active clinic's Open Dental address and key (clinics table). */
+    private final OpenDentalConnection connection;
     private final RestTemplate restTemplate;
 
-    public PatientFamilyResourcesController(RestTemplate restTemplate) {
+    public PatientFamilyResourcesController(RestTemplate restTemplate, OpenDentalConnection connection) {
         this.restTemplate = restTemplate;
+        this.connection = connection;
     }
 
     @RequestMapping
@@ -98,7 +99,7 @@ public class PatientFamilyResourcesController {
         if (validation != null) return error(HttpStatus.BAD_REQUEST, validation);
 
         UriComponentsBuilder target = UriComponentsBuilder.fromHttpUrl(
-                baseUrl.replaceAll("/+$", "") + resolved.upstreamPath);
+                connection.baseUrl() + resolved.upstreamPath);
         params.forEach(target::queryParam);
         HttpHeaders headers = new HttpHeaders();
         if (body != null) headers.setContentType(MediaType.APPLICATION_JSON);

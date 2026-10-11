@@ -19,7 +19,7 @@ import com.clinic.opendental.dto.subscription.SubscriptionRequest;
 import com.clinic.opendental.dto.subscription.SubscriptionResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
+import com.clinic.opendental.config.OpenDentalConnection;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -36,10 +36,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class OpenDentalClient {
 
-    @Value("${opendental.base-url}")
-    private String baseUrl;
-
     private final RestTemplate restTemplate;
+    /** The active clinic's address, used when a caller doesn't pass a clinic's own. */
+    private final OpenDentalConnection connection;
 
     // Static, named generic type references (rather than inline anonymous ones).
     // Anonymous ParameterizedTypeReference inside overloaded methods generates
@@ -78,12 +77,12 @@ public class OpenDentalClient {
 
     /**
      * Resolve the effective base URL.
-     * If a clinic-specific base URL is provided, use it; otherwise fall back to the configured default.
+     * If a clinic-specific base URL is provided, use it; otherwise the active clinic's.
      */
     private String resolveBaseUrl(String clinicBaseUrl) {
         return (clinicBaseUrl != null && !clinicBaseUrl.isBlank())
                 ? clinicBaseUrl
-                : baseUrl;
+                : connection.baseUrl();
     }
 
 
@@ -779,7 +778,7 @@ public class OpenDentalClient {
     public List<SubscriptionResponse> getSubscriptions(String apiKey) {
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         ResponseEntity<List<SubscriptionResponse>> response = restTemplate.exchange(
-                baseUrl + "/subscriptions",
+                resolveBaseUrl(null) + "/subscriptions",
                 HttpMethod.GET,
                 entity,
                 new ParameterizedTypeReference<List<SubscriptionResponse>>() {});
@@ -794,7 +793,7 @@ public class OpenDentalClient {
     public SubscriptionResponse createSubscription(SubscriptionRequest request, String apiKey) {
         HttpEntity<SubscriptionRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         ResponseEntity<SubscriptionResponse> response = restTemplate.exchange(
-                baseUrl + "/subscriptions",
+                resolveBaseUrl(null) + "/subscriptions",
                 HttpMethod.POST,
                 entity,
                 SubscriptionResponse.class);
@@ -809,7 +808,7 @@ public class OpenDentalClient {
     public SubscriptionResponse updateSubscription(Long subscriptionNum, SubscriptionRequest request, String apiKey) {
         HttpEntity<SubscriptionRequest> entity = new HttpEntity<>(request, buildAuthHeaders(apiKey));
         ResponseEntity<SubscriptionResponse> response = restTemplate.exchange(
-                baseUrl + "/subscriptions/" + subscriptionNum,
+                resolveBaseUrl(null) + "/subscriptions/" + subscriptionNum,
                 HttpMethod.PUT,
                 entity,
                 SubscriptionResponse.class);
@@ -824,7 +823,7 @@ public class OpenDentalClient {
     public void deleteSubscription(Long subscriptionId, String apiKey) {
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         restTemplate.exchange(
-                baseUrl + "/subscriptions/" + subscriptionId,
+                resolveBaseUrl(null) + "/subscriptions/" + subscriptionId,
                 HttpMethod.DELETE,
                 entity,
                 Void.class);

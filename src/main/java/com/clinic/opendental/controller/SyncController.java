@@ -1,7 +1,11 @@
 package com.clinic.opendental.controller;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -9,18 +13,27 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.clinic.opendental.model.Appointment;
+import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.model.Document;
 import com.clinic.opendental.model.OdSyncTask;
 import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.ProcedureLog;
+import com.clinic.opendental.repository.ClinicRepository;
+import com.clinic.opendental.security.AuditService;
+import com.clinic.opendental.security.CurrentUser;
 import com.clinic.opendental.service.SyncService;
 import com.clinic.opendental.service.Impl.FullSyncService;
 import com.clinic.opendental.service.Impl.OdSyncService;
+import com.clinic.opendental.service.Impl.SyncControl;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import lombok.RequiredArgsConstructor;
 
@@ -32,6 +45,114 @@ public class SyncController {
     private final SyncService syncService;
     private final OdSyncService odSyncService;
     private final FullSyncService fullSyncService;
+    private final SyncControl syncControl;
+    private final ClinicRepository clinicRepository;
+    private final AuditService audit;
+
+    // ========================================================================
+    // Pause / resume, and what each clinic syncs (the Sync settings screen)
+    // ========================================================================
+
+    /**
+     * GET /api/sync/control
+     * Whether sync is paused (by whom, since when, why) and whether a full sync is running.
+     */
+    @GetMapping("/control")
+    public ResponseEntity<Map<String, Object>> control() {
+        return ResponseEntity.ok(controlBody(syncControl.state()));
+    }
+
+    /**
+     * POST /api/sync/control/pause  body: {"reason": "..."} (optional)
+     * Stops reading from Open Dental and sending edits to it until resumed. A running
+     * Force Sync stops after the resource it is on. Webhooks are still saved.
+     */
+    @PostMapping("/control/pause")
+    public ResponseEntity<Map<String, Object>> pause(@RequestBody(required = false) Map<String, Object> body,
+                                                     HttpServletRequest request) {
+        String reason = body == null || body.get("reason") == null ? null : String.valueOf(body.get("reason"));
+        if (reason != null && reason.length() > 500) reason = reason.substring(0, 500);
+        SyncControl.State state = syncControl.pause(by(), reason);
+        audit.record("SYNC_PAUSED", reason == null || reason.isBlank() ? null : "Reason: " + reason, request);
+        return ResponseEntity.ok(controlBody(state));
+    }
+
+    /** POST /api/sync/control/resume  Sync picks up where it left off; queued edits go out. */
+    @PostMapping("/control/resume")
+    public ResponseEntity<Map<String, Object>> resume(HttpServletRequest request) {
+        SyncControl.State state = syncControl.resume(by());
+        audit.record("SYNC_RESUMED", null, request);
+        return ResponseEntity.ok(controlBody(state));
+    }
+
+    /**
+     * GET /api/sync/clinics
+     * Every clinic with what it syncs: everything, or the chosen resources plus the ones
+     * synced because a chosen one is read through them. Also lists what can be chosen.
+     */
+    @GetMapping("/clinics")
+    public ResponseEntity<Map<String, Object>> clinicSelections() {
+        List<Map<String, Object>> clinics = new ArrayList<>();
+        for (Clinic clinic : clinicRepository.findAll()) {
+            Set<String> chosen = syncControl.chosen(clinic.getId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("clinicCode", clinic.getClinicCode());
+            row.put("clinicName", clinic.getClinicName());
+            row.put("active", Boolean.TRUE.equals(clinic.getIsActive()));
+            row.put("everything", chosen == null);
+            row.put("resources", chosen == null ? List.of() : List.copyOf(chosen));
+            row.put("alsoSynced", chosen == null ? List.of() : SyncControl.addedForDependencies(chosen));
+            clinics.add(row);
+        }
+        return ResponseEntity.ok(Map.of("syncable", SyncControl.SYNCABLE, "clinics", clinics));
+    }
+
+    /**
+     * PUT /api/sync/clinics/{clinicCode}/resources
+     * body: {"everything": true} or {"everything": false, "resources": ["patients", "claims", ...]}
+     */
+    @PutMapping("/clinics/{clinicCode}/resources")
+    public ResponseEntity<Map<String, Object>> chooseResources(@PathVariable String clinicCode,
+                                                               @RequestBody Map<String, Object> body,
+                                                               HttpServletRequest request) {
+        Clinic clinic = clinicRepository.findByClinicCode(clinicCode).orElse(null);
+        if (clinic == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No clinic " + clinicCode));
+        }
+        boolean everything = Boolean.TRUE.equals(body.get("everything"));
+        Set<String> resources = null;
+        if (!everything) {
+            if (!(body.get("resources") instanceof List<?> list) || list.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error",
+                        "Choose at least one screen to sync, or sync everything. To stop syncing, pause sync instead."));
+            }
+            resources = new LinkedHashSet<>();
+            for (Object item : list) resources.add(String.valueOf(item));
+        }
+        try {
+            syncControl.choose(clinic.getId(), resources, by());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+        audit.record("SYNC_RESOURCES_CHANGED", "Clinic " + clinicCode + ": "
+                + (resources == null ? "everything" : String.join(", ", resources)), request);
+        return clinicSelections();
+    }
+
+    private static String by() {
+        String email = CurrentUser.email();
+        return email == null ? "unknown" : email;
+    }
+
+    private Map<String, Object> controlBody(SyncControl.State state) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("paused", state.paused());
+        map.put("pausedBy", state.pausedBy());
+        map.put("pausedAt", state.pausedAt() == null ? null : state.pausedAt().toInstant().toString());
+        map.put("reason", state.reason());
+        map.put("fullSyncRunning", fullSyncService.isRunning());
+        return map;
+    }
 
     // ========================================================================
     // Force Sync - everything in Open Dental, for every active clinic

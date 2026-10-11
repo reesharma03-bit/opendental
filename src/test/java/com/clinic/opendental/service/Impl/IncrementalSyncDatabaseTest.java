@@ -55,7 +55,7 @@ class IncrementalSyncDatabaseTest {
         clinic = Clinic.builder().id(UUID.randomUUID()).clinicCode("T" + System.nanoTime()).baseUrl("http://od").apiKey("k").build();
         jdbc.update("INSERT INTO clinics (id, clinic_name, clinic_code, base_url) VALUES (?, 'Test', ?, 'http://od')",
                 clinic.getId(), clinic.getClinicCode());
-        service = new IncrementalSyncService(mock(ClinicRepository.class), mirror, cursors, fullSync, true);
+        service = new IncrementalSyncService(mock(ClinicRepository.class), mirror, cursors, fullSync, mock(SyncControl.class), true);
     }
 
     @AfterEach

@@ -5,7 +5,6 @@ import com.clinic.opendental.dto.patient.UpdatePatientRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
@@ -16,21 +15,21 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 /**
  * Open Dental's API service rejects any request without an Authorization header
  * with {@code 400 "Malformed API request."}, so patient writes must always carry
- * the configured key.
+ * the active clinic's key.
  */
 class RestTemplateConfigTest {
 
     private static final String UPDATED_PATIENT = "{\"PatNum\":47,\"HmPhone\":\"555-0199\"}";
 
     private OpenDentalClient client(RestTemplate template) {
-        OpenDentalClient client = new OpenDentalClient(template);
-        ReflectionTestUtils.setField(client, "baseUrl", "http://opendental.test/api/v1");
-        return client;
+        OpenDentalConnection connection = org.mockito.Mockito.mock(OpenDentalConnection.class);
+        org.mockito.Mockito.when(connection.baseUrl()).thenReturn("http://opendental.test/api/v1");
+        return new OpenDentalClient(template, connection);
     }
 
     @Test
     void appliesConfiguredApiKeyToPatientUpdate() {
-        RestTemplate template = new RestTemplateConfig().restTemplate("ODFHIR devKey/custKey", 0);
+        RestTemplate template = new RestTemplateConfig().restTemplate(() -> "ODFHIR devKey/custKey", 0);
         MockRestServiceServer server = MockRestServiceServer.bindTo(template).build();
 
         // RestTemplateConfig builds the RestTemplate with Jackson's default
@@ -51,7 +50,7 @@ class RestTemplateConfigTest {
 
     @Test
     void omitsAuthorizationHeaderWhenNoKeyIsConfigured() {
-        RestTemplate template = new RestTemplateConfig().restTemplate("", 0);
+        RestTemplate template = new RestTemplateConfig().restTemplate(() -> null, 0);
         MockRestServiceServer server = MockRestServiceServer.bindTo(template).build();
 
         server.expect(requestTo("http://opendental.test/api/v1/patients/47"))

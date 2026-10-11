@@ -99,7 +99,7 @@ class OdSyncServiceTest {
         });
 
         service = new OdSyncService(tasks, clinics, patients, appointments, documents, procedureLogs, client,
-                mappers, records, mock(EntityManager.class), mock(PlatformTransactionManager.class), true, 3);
+                mappers, records, mock(EntityManager.class), mock(PlatformTransactionManager.class), mock(SyncControl.class), true, 3);
     }
 
     @Test

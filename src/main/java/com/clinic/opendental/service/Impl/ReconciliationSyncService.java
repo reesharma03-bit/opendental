@@ -163,47 +163,70 @@ public class ReconciliationSyncService {
      * is its own transaction.
      */
     public ReconciliationResult reconcileClinic(Clinic clinic) {
+        return reconcileClinic(clinic, table -> true);
+    }
+
+    /** As {@link #reconcileClinic(Clinic)}, for the tables {@code include} accepts (clinics always). */
+    public ReconciliationResult reconcileClinic(Clinic clinic, java.util.function.Predicate<String> include) {
         Stats total = new Stats();
 
         Stats clinics = reconcileClinics(clinic);
         logSummary("clinics", clinic, clinics);
         total.add(clinics);
 
-        Stats patients = reconcilePatients(clinic);
-        logSummary("patients", clinic, patients);
-        total.add(patients);
+        if (include.test("patients")) {
+            Stats patients = reconcilePatients(clinic);
+            logSummary("patients", clinic, patients);
+            total.add(patients);
+        }
 
-        Stats appointments = reconcileAppointments(clinic);
-        logSummary("appointments", clinic, appointments);
-        total.add(appointments);
+        if (include.test("appointments")) {
+            Stats appointments = reconcileAppointments(clinic);
+            logSummary("appointments", clinic, appointments);
+            total.add(appointments);
+        }
 
-        Stats documents = reconcileDocuments(clinic);
-        logSummary("documents", clinic, documents);
-        total.add(documents);
+        if (include.test("documents")) {
+            Stats documents = reconcileDocuments(clinic);
+            logSummary("documents", clinic, documents);
+            total.add(documents);
+        }
 
-        Stats procedureLogs = reconcileProcedureLogs(clinic);
-        logSummary("procedurelogs", clinic, procedureLogs);
-        total.add(procedureLogs);
+        if (include.test("procedurelogs")) {
+            Stats procedureLogs = reconcileProcedureLogs(clinic);
+            logSummary("procedurelogs", clinic, procedureLogs);
+            total.add(procedureLogs);
+        }
 
-        Stats patFields = reconcilePatFields(clinic);
-        logSummary("patfields", clinic, patFields);
-        total.add(patFields);
+        if (include.test("patfields")) {
+            Stats patFields = reconcilePatFields(clinic);
+            logSummary("patfields", clinic, patFields);
+            total.add(patFields);
+        }
 
-        Stats schedules = reconcileSchedules(clinic);
-        logSummary("schedules", clinic, schedules);
-        total.add(schedules);
+        if (include.test("schedules")) {
+            Stats schedules = reconcileSchedules(clinic);
+            logSummary("schedules", clinic, schedules);
+            total.add(schedules);
+        }
 
-        Stats toothInitials = reconcileToothInitials(clinic);
-        logSummary("toothinitials", clinic, toothInitials);
-        total.add(toothInitials);
+        if (include.test("toothinitials")) {
+            Stats toothInitials = reconcileToothInitials(clinic);
+            logSummary("toothinitials", clinic, toothInitials);
+            total.add(toothInitials);
+        }
 
-        Stats providers = reconcileProviders(clinic);
-        logSummary("providers", clinic, providers);
-        total.add(providers);
+        if (include.test("providers")) {
+            Stats providers = reconcileProviders(clinic);
+            logSummary("providers", clinic, providers);
+            total.add(providers);
+        }
 
-        Stats operatories = reconcileOperatories(clinic);
-        logSummary("operatories", clinic, operatories);
-        total.add(operatories);
+        if (include.test("operatories")) {
+            Stats operatories = reconcileOperatories(clinic);
+            logSummary("operatories", clinic, operatories);
+            total.add(operatories);
+        }
 
         String message = String.format(
                 "Reconciliation for clinic %s complete: %d processed, %d inserted, %d updated, %d unchanged, %d stale, %d duplicates, %d failed",

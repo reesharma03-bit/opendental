@@ -1,12 +1,12 @@
 package com.clinic.opendental.config;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpRequest;
-import org.springframework.http.client.ClientHttpRequestExecution;
-import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.web.client.RestTemplate;
+
+import java.util.function.Supplier;
 
 @Configuration
 public class RestTemplateConfig {
@@ -14,31 +14,33 @@ public class RestTemplateConfig {
     /**
      * Open Dental's API service rejects any request that is missing the
      * Authorization header with {@code 400 "Malformed API request."}, so the
-     * configured API key is attached to every outgoing call here. This covers
-     * patient writes, which previously sent no credentials at all.
+     * active clinic's api_key (clinics table) is attached to every outgoing call
+     * that doesn't carry one already.
      *
      * <p>Requests that already carry an Authorization header (a per-clinic key
-     * supplied by the caller) are left untouched, so multi-clinic keys keep
-     * taking precedence over the configured default.</p>
-     *
-     * @param apiKey full Authorization header value, e.g.
-     *               {@code ODFHIR <DeveloperKey>/<CustomerKey>}; blank disables
-     *               the header entirely
+     * supplied by the caller) are left untouched.</p>
      */
     @Bean
-    public RestTemplate restTemplate(@Value("${opendental.api-key:}") String apiKey,
+    public RestTemplate restTemplate(ObjectProvider<OpenDentalConnection> connection,
                                      @Value("${opendental.min-request-interval-ms:1000}") long minRequestIntervalMs) {
+        return restTemplate(() -> {
+            OpenDentalConnection active = connection.getIfAvailable();
+            return active == null ? null : active.apiKey();
+        }, minRequestIntervalMs);
+    }
+
+    /** @param apiKey the full Authorization value, e.g. {@code ODFHIR <DeveloperKey>/<CustomerKey>}; null or blank sends none */
+    RestTemplate restTemplate(Supplier<String> apiKey, long minRequestIntervalMs) {
         RestTemplate restTemplate = new RestTemplate();
-        if (apiKey != null && !apiKey.isBlank()) {
-            ClientHttpRequestInterceptor apiKeyInterceptor =
-                    (HttpRequest request, byte[] body, ClientHttpRequestExecution execution) -> {
-                        if (!request.getHeaders().containsKey("Authorization")) {
-                            request.getHeaders().set("Authorization", apiKey);
-                        }
-                        return execution.execute(request, body);
-                    };
-            restTemplate.getInterceptors().add(apiKeyInterceptor);
-        }
+        restTemplate.getInterceptors().add((request, body, execution) -> {
+            if (!request.getHeaders().containsKey("Authorization")) {
+                String key = apiKey.get();
+                if (key != null && !key.isBlank()) {
+                    request.getHeaders().set("Authorization", key);
+                }
+            }
+            return execution.execute(request, body);
+        });
         // Last, so a retry after 429 re-sends the request exactly as prepared above.
         restTemplate.getInterceptors().add(new OpenDentalRateLimiter(minRequestIntervalMs));
         return restTemplate;

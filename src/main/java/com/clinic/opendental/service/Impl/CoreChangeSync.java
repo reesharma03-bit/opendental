@@ -56,24 +56,29 @@ public class CoreChangeSync {
 
     /** One catch-up pass for a clinic. */
     public void pull(Clinic clinic) {
-        String since = since(clinic, "appointments", "appointments");
+        pull(clinic, table -> true);
+    }
+
+    /** One catch-up pass for a clinic, for the tables {@code include} accepts. */
+    public void pull(Clinic clinic, java.util.function.Predicate<String> include) {
+        String since = include.test("appointments") ? since(clinic, "appointments", "appointments") : null;
         if (since != null) {
             ReconciliationSyncService.Stats stats = reconciliation.reconcileAppointments(clinic, Map.of("DateTStamp", since));
             advance(clinic, "appointments", stats);
         }
-        since = since(clinic, "procedurelogs", "procedure_logs");
+        since = include.test("procedurelogs") ? since(clinic, "procedurelogs", "procedure_logs") : null;
         if (since != null) {
             ReconciliationSyncService.Stats stats = reconciliation.reconcileProcedureLogs(clinic, Map.of("DateTStamp", since));
             advance(clinic, "procedurelogs", stats);
         }
         // Patients have no DateTStamp column of their own here: start from the appointments' clock.
-        since = since(clinic, "patients", "appointments");
+        since = include.test("patients") ? since(clinic, "patients", "appointments") : null;
         if (since != null) {
             pullPatients(clinic, since);
         }
-        reconciliation.reconcileSchedules(clinic);
-        reconciliation.reconcileProviders(clinic);
-        reconciliation.reconcileOperatories(clinic);
+        if (include.test("schedules")) reconciliation.reconcileSchedules(clinic);
+        if (include.test("providers")) reconciliation.reconcileProviders(clinic);
+        if (include.test("operatories")) reconciliation.reconcileOperatories(clinic);
     }
 
     private void pullPatients(Clinic clinic, String since) {

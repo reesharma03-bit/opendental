@@ -91,6 +91,17 @@ public class SyncCursors {
         return claimed == null ? List.of() : claimed;
     }
 
+    /** Nothing was pulled (sync paused, or not chosen for the clinic): release the lease, keep everything else. */
+    public void postpone(Cursor cursor, Duration nextIn) {
+        tx.executeWithoutResult(status -> jdbc.update("""
+                        UPDATE sync_cursors
+                        SET status = 'idle', locked_by = NULL, locked_until = NULL,
+                            next_due_at = now() + make_interval(secs => ?), updated_at = now()
+                        WHERE clinic_id = ? AND resource = ?
+                        """,
+                nextIn.toSeconds(), cursor.clinicId(), cursor.resource()));
+    }
+
     /** A pull finished: release the lease, move the watermark forward and set the next due time. */
     public void succeeded(Cursor cursor, Timestamp latestChange, boolean changesOnly, Duration nextIn) {
         tx.executeWithoutResult(status -> jdbc.update("""

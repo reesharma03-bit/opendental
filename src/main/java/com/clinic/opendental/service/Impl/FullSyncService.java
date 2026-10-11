@@ -1,11 +1,13 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.service.Impl.OdResourceCatalog.Resource;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -36,7 +38,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </ul>
  *
  * Only one of these runs at a time; the per-minute reconciliation also waits for a full
- * sync to finish.
+ * sync to finish. Each clinic syncs only what it has chosen ({@link SyncControl}); pausing
+ * stops a running full sync after the resource it is on.
  */
 @Service
 @Slf4j
@@ -49,6 +52,7 @@ public class FullSyncService {
     private final JdbcTemplate jdbc;
     /** The pool runs with auto-commit off, so the sync_runs rows need a transaction to stick. */
     private final TransactionTemplate tx;
+    private final SyncControl control;
     private final boolean enabled;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -65,6 +69,7 @@ public class FullSyncService {
                            SyncCursors cursors,
                            JdbcTemplate jdbc,
                            PlatformTransactionManager transactionManager,
+                           SyncControl control,
                            @Value("${resource-sync.enabled:true}") boolean enabled) {
         this.clinicRepository = clinicRepository;
         this.reconciliationSyncService = reconciliationSyncService;
@@ -72,6 +77,7 @@ public class FullSyncService {
         this.cursors = cursors;
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(transactionManager);
+        this.control = control;
         this.enabled = enabled;
     }
 
@@ -88,8 +94,12 @@ public class FullSyncService {
      * Starts a full sync in the background (the Force Sync button).
      *
      * @return the status of the run that is now in progress (a new one, or one already running)
+     * @throws ApiException 409 while sync is paused
      */
     public Map<String, Object> startFullSync(String trigger) {
+        if (control.paused()) {
+            throw new ApiException(HttpStatus.CONFLICT, "Sync is paused. Resume it on the Sync settings screen first.");
+        }
         if (!running.compareAndSet(false, true)) {
             return status();
         }
@@ -106,7 +116,7 @@ public class FullSyncService {
 
     @Scheduled(cron = "${resource-sync.full-cron:0 0 2 * * *}")
     public void scheduledFullSync() {
-        if (enabled) {
+        if (enabled && !control.paused()) {
             startFullSync("nightly");
         }
     }
@@ -123,9 +133,16 @@ public class FullSyncService {
             if (run.full) {
                 resources.addAll(OdResourceCatalog.PER_PARENT);
             }
-            run.total = clinics.size() * (resources.size() + (run.full ? 1 : 0));
+            Map<Clinic, List<Resource>> chosen = new LinkedHashMap<>();
             for (Clinic clinic : clinics) {
-                syncClinic(run, clinic, resources);
+                chosen.put(clinic, resources.stream().filter(r -> !control.skips(clinic, r.resource())).toList());
+            }
+            run.total = chosen.values().stream().mapToInt(r -> r.size() + (run.full ? 1 : 0)).sum();
+            for (Map.Entry<Clinic, List<Resource>> entry : chosen.entrySet()) {
+                if (!syncClinic(run, entry.getKey(), entry.getValue())) {
+                    run.stop("Paused" + pausedBy());
+                    return;
+                }
             }
             run.finish();
         } catch (Exception e) {
@@ -138,7 +155,8 @@ public class FullSyncService {
         }
     }
 
-    private void syncClinic(Run run, Clinic clinic, List<Resource> resources) {
+    /** @return false when sync was paused part-way */
+    private boolean syncClinic(Run run, Clinic clinic, List<Resource> resources) {
         UUID runId = recordStart(clinic, run);
         int records = 0;
         int failures = 0;
@@ -146,13 +164,18 @@ public class FullSyncService {
 
         if (run.full) {
             run.step(clinic, "patients, appointments, documents, procedure logs, ...");
-            ReconciliationSyncService.ReconciliationResult core = reconciliationSyncService.reconcileClinic(clinic);
+            ReconciliationSyncService.ReconciliationResult core =
+                    reconciliationSyncService.reconcileClinic(clinic, table -> !control.skips(clinic, table));
             run.add(clinic, "core tables", core.syncedCount(), core.failedCount(),
                     core.failedCount() > 0 ? core.message() : null);
             records += core.syncedCount();
             failures += core.failedCount();
         }
         for (Resource resource : resources) {
+            if (control.paused()) {
+                recordEnd(runId, records, failures, "stopped");
+                return false;
+            }
             run.step(clinic, resource.resource());
             // Nightly: per-patient resources for recently active patients plus a rolling seventh of
             // the rest (Open Dental's ~1 call/second can't cover every patient every night).
@@ -167,7 +190,13 @@ public class FullSyncService {
             records += result.records();
             failures += result.ok() ? 0 : 1;
         }
-        recordEnd(runId, records, failures);
+        recordEnd(runId, records, failures, failures == 0 ? "completed" : "completed_with_errors");
+        return true;
+    }
+
+    private String pausedBy() {
+        String by = control.state().pausedBy();
+        return by == null ? "" : " by " + by;
     }
 
     // sync_runs is an audit log; failing to write it must not stop the sync.
@@ -214,7 +243,7 @@ public class FullSyncService {
         }
     }
 
-    private void recordEnd(UUID id, int records, int failures) {
+    private void recordEnd(UUID id, int records, int failures, String outcome) {
         if (id == null) {
             return;
         }
@@ -222,7 +251,7 @@ public class FullSyncService {
             tx.executeWithoutResult(status -> jdbc.update(
                     "UPDATE sync_runs SET total_found = ?, total_synced = ?, total_failed = ?, status = ?, "
                             + "completed_at = now() WHERE id = ?",
-                    records, records, failures, failures == 0 ? "completed" : "completed_with_errors", id));
+                    records, records, failures, outcome, id));
         } catch (Exception e) {
             log.warn("Could not record sync run: {}", e.getMessage());
         }
@@ -271,6 +300,14 @@ public class FullSyncService {
             finishedAt = Instant.now();
             currentStep = null;
             state = failures == 0 ? "completed" : "completed_with_errors";
+        }
+
+        /** Paused part-way: what was synced is kept, the rest is picked up after resuming. */
+        void stop(String message) {
+            finishedAt = Instant.now();
+            currentStep = null;
+            error = message;
+            state = "paused";
         }
 
         void fail(String message) {

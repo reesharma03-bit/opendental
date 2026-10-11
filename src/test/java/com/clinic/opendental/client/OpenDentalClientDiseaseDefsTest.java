@@ -1,11 +1,11 @@
 package com.clinic.opendental.client;
 
+import com.clinic.opendental.config.OpenDentalConnection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
@@ -24,8 +24,9 @@ class OpenDentalClientDiseaseDefsTest {
     void setUp() {
         RestTemplate template = new RestTemplate();
         server = MockRestServiceServer.bindTo(template).build();
-        client = new OpenDentalClient(template);
-        ReflectionTestUtils.setField(client, "baseUrl", "http://opendental.test/api/v1");
+        OpenDentalConnection connection = org.mockito.Mockito.mock(OpenDentalConnection.class);
+        org.mockito.Mockito.when(connection.baseUrl()).thenReturn("http://opendental.test/api/v1");
+        client = new OpenDentalClient(template, connection);
     }
 
     @Test

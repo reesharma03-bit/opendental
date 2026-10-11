@@ -40,6 +40,8 @@ public class IncrementalSyncService {
     static final Duration OVERLAP = Duration.ofMinutes(5);
     /** Resources handled per clinic per tick, so one tick never runs for long. */
     private static final int PER_TICK = 10;
+    /** How soon a resource the clinic doesn't sync is looked at again. */
+    private static final Duration SKIPPED_RECHECK = Duration.ofMinutes(5);
 
     private static final Map<String, Resource> LISTED = OdResourceCatalog.LISTS.stream()
             .collect(Collectors.toMap(Resource::resource, Function.identity()));
@@ -48,22 +50,25 @@ public class IncrementalSyncService {
     private final ResourceMirrorService mirror;
     private final SyncCursors cursors;
     private final FullSyncService fullSync;
+    private final SyncControl control;
     private final boolean enabled;
     private final AtomicBoolean ticking = new AtomicBoolean(false);
 
     public IncrementalSyncService(ClinicRepository clinicRepository, ResourceMirrorService mirror, SyncCursors cursors,
-                                  FullSyncService fullSync, @Value("${resource-sync.enabled:true}") boolean enabled) {
+                                  FullSyncService fullSync, SyncControl control,
+                                  @Value("${resource-sync.enabled:true}") boolean enabled) {
         this.clinicRepository = clinicRepository;
         this.mirror = mirror;
         this.cursors = cursors;
         this.fullSync = fullSync;
+        this.control = control;
         this.enabled = enabled;
     }
 
     @Scheduled(fixedDelayString = "${resource-sync.tick-ms:60000}", initialDelayString = "${resource-sync.tick-ms:60000}")
     public void tick() {
         // A full sync re-reads everything anyway; wait for it rather than compete for Open Dental.
-        if (!enabled || fullSync.isRunning() || !ticking.compareAndSet(false, true)) {
+        if (!enabled || control.paused() || fullSync.isRunning() || !ticking.compareAndSet(false, true)) {
             return;
         }
         try {
@@ -84,6 +89,16 @@ public class IncrementalSyncService {
             if (resource == null) {
                 // No longer in the catalog: park it.
                 cursors.succeeded(cursor, null, false, Duration.ofDays(365));
+                continue;
+            }
+            if (control.skips(clinic, resource.resource())) {
+                // Not chosen for this clinic: look again later, keeping the watermark, so a
+                // change pull picks up where it left off once the resource is chosen again.
+                cursors.postpone(cursor, SKIPPED_RECHECK);
+                continue;
+            }
+            if (control.paused()) {
+                cursors.postpone(cursor, Duration.ZERO);
                 continue;
             }
             run(clinic, resource, cursor);

@@ -75,7 +75,7 @@ docker run -p 8080:8080 java-api
 
 Implemented following the Open Dental API specification
 (https://www.opendental.com/site/apispecification.html). Requests are validated
-and forwarded to the configured Open Dental upstream (`opendental.base-url`).
+and forwarded to the active clinic's Open Dental (`clinics.base_url` and `api_key`).
 JSON field names are passed through unchanged. `Appointments` is served by its
 dedicated typed controller at `/api/appointments`.
 
@@ -99,7 +99,7 @@ before any upstream call is made. Connectivity failures return `502 Bad Gateway`
 
 Implemented following the Open Dental API specification
 (https://www.opendental.com/site/apispecification.html). Requests are validated
-and forwarded to the configured Open Dental upstream (`opendental.base-url`).
+and forwarded to the active clinic's Open Dental (`clinics.base_url` and `api_key`).
 JSON field names are passed through unchanged. `ProcedureLogs` is served by its
 dedicated typed controller at `/api/procedurelogs`.
 
@@ -126,7 +126,7 @@ documented enumerations are enforced. Connectivity failures return `502 Bad Gate
 
 Implemented following the Open Dental API specification
 (https://www.opendental.com/site/apispecification.html). Requests are validated
-and forwarded to the configured Open Dental upstream (`opendental.base-url`).
+and forwarded to the active clinic's Open Dental (`clinics.base_url` and `api_key`).
 JSON field names are passed through unchanged.
 
 - `GET /api/benefits`, `GET /api/benefits/{benefitNum}`, `POST /api/benefits`, `PUT /api/benefits/{benefitNum}`, `DELETE /api/benefits/{benefitNum}`

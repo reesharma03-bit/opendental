@@ -302,7 +302,7 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
                 <p className="relative mt-4 border-t border-white/15 pt-3 text-[9px] text-blue-100">
                   {sync?.running ? 'Open Dental sync is running…'
                     : sync?.lastFullSync ? `Last full sync with Open Dental: ${dateOf(sync.lastFullSync.at)} ${timeOf(sync.lastFullSync.at)} (${sync.lastFullSync.status.replaceAll('_', ' ')})`
-                      : 'No full sync with Open Dental yet — use Force Sync in the sidebar.'}
+                      : 'No full sync with Open Dental yet — run Force Sync in Sync settings.'}
                 </p>
               </section>
             </div>

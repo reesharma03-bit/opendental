@@ -1,5 +1,6 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.config.OpenDentalConnection;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -9,7 +10,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
@@ -28,10 +28,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(ClinicalCareResourcesController.class)
 // Controller behaviour only; who may call what is covered by SecurityRulesTest.
 @AutoConfigureMockMvc(addFilters = false)
-@TestPropertySource(properties = "opendental.base-url=https://od.example/api/v1")
 class ClinicalCareResourcesControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockBean private RestTemplate restTemplate;
+    @MockBean private OpenDentalConnection connection;
+
+    @org.junit.jupiter.api.BeforeEach
+    void activeClinic() {
+        when(connection.baseUrl()).thenReturn("https://od.example/api/v1");
+    }
 
     @Test
     void documentedReadsForwardToUpstreamPaths() throws Exception {

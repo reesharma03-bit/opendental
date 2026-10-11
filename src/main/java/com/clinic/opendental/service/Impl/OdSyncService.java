@@ -104,6 +104,7 @@ public class OdSyncService {
     private final ResourceRecordStore records;
     private final EntityManager entityManager;
     private final TransactionTemplate tx;
+    private final SyncControl control;
     private final boolean enabled;
     private final int maxAttempts;
 
@@ -118,6 +119,7 @@ public class OdSyncService {
                          ResourceRecordStore records,
                          EntityManager entityManager,
                          PlatformTransactionManager transactionManager,
+                         SyncControl control,
                          @Value("${od-sync.enabled:true}") boolean enabled,
                          @Value("${od-sync.max-attempts:50}") int maxAttempts) {
         this.tasks = tasks;
@@ -131,6 +133,7 @@ public class OdSyncService {
         this.records = records;
         this.entityManager = entityManager;
         this.tx = new TransactionTemplate(transactionManager);
+        this.control = control;
         this.enabled = enabled;
         this.maxAttempts = maxAttempts;
     }
@@ -273,7 +276,8 @@ public class OdSyncService {
      *         otherwise the key it is stored under locally
      */
     public long pushNow(long taskId) {
-        if (enabled) {
+        // While sync is paused the change waits in the queue and goes out after resuming.
+        if (enabled && !control.paused()) {
             try {
                 process(taskId);
             } catch (Exception e) {
@@ -288,7 +292,7 @@ public class OdSyncService {
 
     /** Pushes every change that is due. Called by the scheduler. */
     public int pushDue() {
-        if (!enabled) {
+        if (!enabled || control.paused()) {
             return 0;
         }
         LocalDateTime now = LocalDateTime.now();

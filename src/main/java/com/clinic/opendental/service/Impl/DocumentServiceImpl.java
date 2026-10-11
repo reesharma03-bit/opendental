@@ -62,7 +62,9 @@ public class DocumentServiceImpl implements DocumentService {
             return apiResponses;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for documents, falling back to database: {}", e.getMessage());
-            return documentRepository.findAll().stream()
+            Long patNum = parsePatNum(params.get("PatNum"));
+            return documentRepository.findByIdClinicId(resolveClinicId()).stream()
+                    .filter(d -> patNum == null || patNum.equals(d.getPatNum()))
                     .map(this::toDocumentResponse)
                     .collect(Collectors.toList());
         }
