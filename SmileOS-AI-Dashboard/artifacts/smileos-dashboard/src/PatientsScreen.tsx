@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Mail,
+  ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, FileText, Mail,
   MapPin, Pencil, Plus, Search, ShieldAlert, Smartphone,
   Users, X,
 } from 'lucide-react';
 import { backendAvailable } from './lib/backend';
 import { request } from './lib/backend';
 import { createBackendPatient, listSupabasePatients, type BackendPatient } from './lib/backendPatients';
-import PatientExperiencePreview from './PatientExperiencePreview';
+import PatientWorkspace, { type WorkspacePatient } from './PatientWorkspace';
 
 function toRecord(p: BackendPatient): PatientRecord {
   return {
@@ -89,6 +89,30 @@ const fieldGroups = [
 const inputClass = 'mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
 const PATIENTS_PER_PAGE = 5;
 
+const patientName = (patient: PatientRecord) => patient.Preferred.trim() || `${patient.FName} ${patient.LName}`;
+const initials = (patient: PatientRecord) => `${patient.FName[0] || ''}${patient.LName[0] || ''}`.toUpperCase();
+
+/** The directory row's patient number ("P-48" → 48); 0 for a patient not yet in Open Dental. */
+function toPatNum(patient: PatientRecord): number {
+  const n = Number(patient.id.replace(/^P-/, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function toWorkspacePatient(patient: PatientRecord): WorkspacePatient {
+  return {
+    patNum: toPatNum(patient),
+    name: patientName(patient),
+    initials: initials(patient),
+    preferred: patient.Preferred,
+    gender: patient.Gender,
+    birthdate: patient.Birthdate,
+    status: patient.PatStatus,
+    phone: patient.WirelessPhone || patient.HmPhone || patient.WkPhone,
+    email: patient.Email,
+    address: [patient.Address, patient.Address2, patient.City, patient.State, patient.Zip].filter(Boolean).join(', '),
+  };
+}
+
 export default function PatientsScreen({ search, onSearchChange, announce, createRequest, onCreateRequestHandled }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -108,7 +132,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
   const [formOpen, setFormOpen] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [openRecord, setOpenRecord] = useState<WorkspacePatient | null>(null);
 
   useEffect(() => {
     if (!backendAvailable()) { setBackendError('Backend is offline in this build. No patient records can be loaded or saved.'); return; }
@@ -272,8 +296,6 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     refreshFromSupabase();
   };
 
-  const patientName = (patient: PatientRecord) => patient.Preferred.trim() || `${patient.FName} ${patient.LName}`;
-  const initials = (patient: PatientRecord) => `${patient.FName[0] || ''}${patient.LName[0] || ''}`.toUpperCase();
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-patients">
@@ -289,9 +311,6 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
           <p className="mt-1.5 text-[12px] text-slate-500">Live patient records from Supabase.</p>
         </div>
         <div className="flex flex-col gap-2 self-start sm:flex-row sm:self-auto">
-          <button type="button" onClick={() => setPreviewOpen((open) => !open)} aria-expanded={previewOpen} aria-controls="patient-experience-demo" data-testid="button-open-patient-experience-preview" className="flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-3.5 text-[12px] font-semibold text-blue-800 transition hover:bg-blue-50">
-            <Users size={15} /> {previewOpen ? 'Hide fictional preview' : 'Fictional experience preview'}
-          </button>
           <button onClick={openCreate} data-testid="button-create-patient" className="flex h-10 items-center justify-center gap-2 rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf]"><Plus size={16} /> Add patient</button>
         </div>
       </div>
@@ -302,7 +321,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
         <span className="hidden rounded-full border border-amber-300/80 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.8px] text-amber-800 sm:inline-flex">Open Dental</span>
       </div>
 
-      {previewOpen && <PatientExperiencePreview />}
+      {openRecord && <PatientWorkspace key={openRecord.patNum} patient={openRecord} onClose={() => setOpenRecord(null)} />}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white shadow-[0_2px_10px_rgba(26,49,91,0.025)]" data-testid="section-patient-directory">
         <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -319,7 +338,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
                 <td className="px-3 py-3"><div className="space-y-1">{(patient.WirelessPhone || patient.HmPhone) && <p className="flex items-center gap-1.5 text-[10px] text-slate-600"><Smartphone size={11} className="text-slate-400" />{patient.WirelessPhone || patient.HmPhone}</p>}{patient.Email && <p className="flex items-center gap-1.5 text-[10px] text-slate-500"><Mail size={11} className="text-slate-400" /><span className="max-w-[180px] truncate">{patient.Email}</span></p>}{!patient.WirelessPhone && !patient.HmPhone && !patient.Email && <span className="text-[10px] text-slate-400">No contact details</span>}</div></td>
                 <td className="px-3 py-3"><p className="flex items-center gap-1.5 text-[10px] text-slate-500">{patient.City || patient.State ? <MapPin size={11} className="text-slate-400" /> : null}{[patient.City, patient.State].filter(Boolean).join(', ') || '—'}</p></td>
                 <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${patient.PatStatus === 'Patient' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`} data-testid={`status-patient-${patient.id}`}>{patient.PatStatus || 'Unspecified'}</span></td>
-                <td className="sticky right-0 z-10 bg-white px-5 py-3 text-right shadow-[-8px_0_10px_rgba(15,23,42,.04)] sm:px-6"><button onClick={() => openEdit(patient)} data-testid={`button-edit-patient-${patient.id}`} aria-label={`Edit ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></td>
+                <td className="sticky right-0 z-10 bg-white px-5 py-3 text-right shadow-[-8px_0_10px_rgba(15,23,42,.04)] sm:px-6"><div className="inline-flex gap-1.5">{toPatNum(patient) > 0 && <button type="button" onClick={() => { setOpenRecord(toWorkspacePatient(patient)); window.scrollTo({ top: 0, behavior: 'smooth' }); }} data-testid={`button-open-record-${patient.id}`} aria-label={`Open record for ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"><FileText size={12} /> Record</button>}<button onClick={() => openEdit(patient)} data-testid={`button-edit-patient-${patient.id}`} aria-label={`Edit ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></div></td>
               </tr>)}
               {visiblePatients.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center" data-testid="empty-patient-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">No matching patients</p><p className="mt-1 text-[10px] text-slate-400">Try a different name, ID, email or phone number.</p></td></tr>}
             </tbody>

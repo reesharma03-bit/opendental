@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3,
-  Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  Bell, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, CreditCard, LayoutDashboard, BellRing,
   Lightbulb, Menu, MessageSquareText, MoreHorizontal, Search, Settings, ShieldCheck,
   RefreshCw, Sparkles, Stethoscope, UserRoundPlus, Users, Wallet, X, Zap, KeyRound, LogOut, UserCog,
@@ -42,7 +42,6 @@ const navItems: { label: string; icon: typeof Users; badge?: string; permission?
   { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
   { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
   { label: 'Subscription', icon: BellRing, permission: 'SYNC_MANAGE' },
-  { label: 'API Catalog', icon: BookOpen },
   { label: 'Users', icon: UserCog, permission: 'USERS_MANAGE' },
 ];
 
