@@ -1,6 +1,8 @@
 package com.clinic.opendental.security;
 
 import com.clinic.opendental.exception.ApiException;
+import com.clinic.opendental.model.Clinic;
+import com.clinic.opendental.repository.ClinicRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +27,7 @@ public class UserService {
     static final int MIN_PASSWORD_LENGTH = 12;
 
     private final AppUserRepository users;
+    private final ClinicRepository clinics;
     private final PasswordEncoder passwords;
     private final AuditService audit;
     private final int maxFailedAttempts;
@@ -32,10 +35,11 @@ public class UserService {
     /** Compared against when the email is unknown, so a wrong email takes as long as a wrong password. */
     private final String dummyHash;
 
-    public UserService(AppUserRepository users, PasswordEncoder passwords, AuditService audit,
+    public UserService(AppUserRepository users, ClinicRepository clinics, PasswordEncoder passwords, AuditService audit,
                        @Value("${auth.max-failed-attempts:5}") int maxFailedAttempts,
                        @Value("${auth.lockout-minutes:15}") long lockoutMinutes) {
         this.users = users;
+        this.clinics = clinics;
         this.passwords = passwords;
         this.audit = audit;
         this.maxFailedAttempts = maxFailedAttempts;
@@ -122,13 +126,82 @@ public class UserService {
     // ------------------------------------------------------------------ administration
 
     public List<Map<String, Object>> list() {
+        Map<UUID, Clinic> byId = new java.util.HashMap<>();
+        Map<UUID, List<String>> owned = new java.util.HashMap<>();
+        clinics.findAll().forEach(c -> {
+            byId.put(c.getId(), c);
+            if (c.getOwnerUserId() != null) owned.computeIfAbsent(c.getOwnerUserId(), k -> new ArrayList<>()).add(c.getClinicName());
+        });
         List<Map<String, Object>> out = new ArrayList<>();
-        users.findAllByOrderByFullNameAsc().forEach(u -> out.add(describe(u)));
+        users.findAllByOrderByFullNameAsc().forEach(u -> {
+            Map<String, Object> row = describe(u, byId.get(u.getClinicId()));
+            if (u.getRole() == Role.DENTIST) row.put("ownedClinics", owned.getOrDefault(u.getId(), List.of()));
+            out.add(row);
+        });
         return out;
     }
 
+    /**
+     * The clinic a user of this role belongs to. Admins (SmileOS administrators) belong to none;
+     * a Dentist may start without one and register their own; everyone else needs one.
+     */
+    private UUID clinicFor(Role role, String clinicCode) {
+        String code = clinicCode == null ? "" : clinicCode.trim();
+        // Admins work on every clinic; dentists own clinics (clinics.owner_user_id) instead.
+        if (role == Role.ADMIN || role == Role.DENTIST) return null;
+        if (code.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose the clinic this person works at.");
+        }
+        return clinics.findByClinicCode(code).map(Clinic::getId)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "There is no clinic " + code + "."));
+    }
+
+    /** The clinic a user works on by default, or null: a dentist's first (connected) clinic; staff's own. */
+    public Clinic clinicOf(AppUser user) {
+        if (user.getRole() == Role.DENTIST) {
+            List<Clinic> own = clinics.findByOwnerUserIdOrderByCreatedAtAsc(user.getId());
+            return own.stream().filter(c -> Boolean.TRUE.equals(c.getIsActive())).findFirst()
+                    .orElse(own.isEmpty() ? null : own.get(0));
+        }
+        return user.getClinicId() == null ? null : clinics.findById(user.getClinicId()).orElse(null);
+    }
+
+    /**
+     * A dentist signs up themselves: name, email and password. They get the DENTIST role, own no
+     * clinic yet, and register their clinics after signing in. The password is stored only as a
+     * BCrypt hash; an email can have one account.
+     */
     @Transactional
-    public Map<String, Object> create(String email, String fullName, String role, String password, HttpServletRequest request) {
+    public AppUser signUpDentist(String fullName, String email, String password, HttpServletRequest request) {
+        String cleanEmail = email == null ? "" : email.trim();
+        if (fullName == null || fullName.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Enter your name.");
+        }
+        if (fullName.trim().length() > 120) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Use at most 120 characters for your name.");
+        }
+        if (!cleanEmail.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+") || cleanEmail.length() > 254) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Enter a valid email address.");
+        }
+        if (users.findByEmail(cleanEmail).isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "An account with this email already exists. Sign in instead.");
+        }
+        checkPassword(password, cleanEmail);
+        AppUser user = users.save(AppUser.builder()
+                .email(cleanEmail)
+                .fullName(fullName.trim())
+                .role(Role.DENTIST)
+                .passwordHash(passwords.encode(password))
+                .active(true)
+                .mustChangePassword(false)
+                .build());
+        audit.record("DENTIST_SIGNED_UP", cleanEmail, user.getId(), cleanEmail, request);
+        return user;
+    }
+
+    @Transactional
+    public Map<String, Object> create(String email, String fullName, String role, String password, String clinicCode,
+                                      HttpServletRequest request) {
         String cleanEmail = email == null ? "" : email.trim();
         if (!cleanEmail.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Enter a valid email address.");
@@ -140,8 +213,10 @@ public class UserService {
             throw new ApiException(HttpStatus.CONFLICT, "A user with this email already exists.");
         }
         Role parsed = parseRole(role);
+        UUID clinicId = clinicFor(parsed, clinicCode);
         checkPassword(password, cleanEmail);
         AppUser user = users.save(AppUser.builder()
+                .clinicId(clinicId)
                 .email(cleanEmail)
                 .fullName(fullName.trim())
                 .role(parsed)
@@ -149,12 +224,14 @@ public class UserService {
                 .active(true)
                 .mustChangePassword(true)
                 .build());
-        audit.record("USER_CREATED", cleanEmail + " as " + parsed.label(), request);
-        return describe(user);
+        audit.record("USER_CREATED", cleanEmail + " as " + parsed.label()
+                + (clinicId == null ? "" : " at " + clinicCode.trim()), request);
+        return describe(user, clinicOf(user));
     }
 
     @Transactional
-    public Map<String, Object> update(UUID id, String fullName, String role, Boolean active, HttpServletRequest request) {
+    public Map<String, Object> update(UUID id, String fullName, String role, Boolean active, String clinicCode,
+                                      HttpServletRequest request) {
         AppUser user = find(id);
         List<String> changes = new ArrayList<>();
         Role newRole = role == null ? user.getRole() : parseRole(role);
@@ -178,11 +255,19 @@ public class UserService {
             changes.add(newActive ? "activated" : "deactivated");
             user.setActive(newActive);
         }
+        // The clinic follows the role: Admins have none; others keep theirs unless a new one is chosen.
+        UUID newClinic = newRole == Role.ADMIN ? null
+                : clinicCode != null ? clinicFor(newRole, clinicCode)
+                : user.getClinicId() != null || newRole == Role.DENTIST ? user.getClinicId() : clinicFor(newRole, "");
+        if (!java.util.Objects.equals(newClinic, user.getClinicId())) {
+            changes.add("clinic " + (newClinic == null ? "none" : clinicCode == null ? "" : clinicCode.trim()));
+            user.setClinicId(newClinic);
+        }
         users.save(user);
         if (!changes.isEmpty()) {
             audit.record("USER_UPDATED", user.getEmail() + ": " + String.join(", ", changes), request);
         }
-        return describe(user);
+        return describe(user, clinicOf(user));
     }
 
     @Transactional
@@ -195,7 +280,7 @@ public class UserService {
         user.setLockedUntil(null);
         users.save(user);
         audit.record("PASSWORD_RESET", user.getEmail(), request);
-        return describe(user);
+        return describe(user, clinicOf(user));
     }
 
     public AppUser find(UUID id) {
@@ -210,6 +295,14 @@ public class UserService {
             // fall through
         }
         throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a role.");
+    }
+
+    public static Map<String, Object> describe(AppUser user, Clinic clinic) {
+        Map<String, Object> out = describe(user);
+        out.put("clinicCode", clinic == null ? null : clinic.getClinicCode());
+        out.put("clinicName", clinic == null ? null : clinic.getClinicName());
+        out.put("clinicConnected", clinic != null && Boolean.TRUE.equals(clinic.getIsActive()));
+        return out;
     }
 
     public static Map<String, Object> describe(AppUser user) {

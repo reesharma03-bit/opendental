@@ -8,7 +8,7 @@ test('the webhooks headline counts active subscriptions', () => {
   assert.deepEqual(webhookSummary([hook('Patient', 'ok'), hook('Appointment', 'ok')]), { tone: 'ok', text: 'All 2 webhooks active' });
   assert.deepEqual(webhookSummary([hook('Patient', 'ok'), hook('Appointment', 'failing')]), { tone: 'warn', text: '1 of 2 webhooks active' });
   assert.deepEqual(webhookSummary([hook('Patient', 'off', 'Waiting for the public address')]), { tone: 'off', text: 'Waiting for the public address' });
-  assert.equal(webhookSummary([]).tone, 'off');
+  assert.deepEqual(webhookSummary([]), { tone: 'off', text: 'Not checked yet' });
 });
 
 test('event names read as words', () => {

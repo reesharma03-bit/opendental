@@ -15,6 +15,8 @@ public enum Permission {
     ASSISTANT_USE,
     /** Force Sync, the push queue, Open Dental subscriptions. */
     SYNC_MANAGE,
+    /** The Open Dental page: register a clinic and manage its connection (Admins: any clinic; Dentists: their own). */
+    CLINIC_CONNECT,
     /** Users, roles and the audit log. */
     USERS_MANAGE,
     /** Raw Open Dental queries, API docs and anything not explicitly mapped. */

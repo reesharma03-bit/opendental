@@ -34,6 +34,10 @@ public class Clinic {
     @Column(name = "api_key")
     private String apiKey;
 
+    /** The DENTIST who owns the clinic (app_users.id); null: no owner yet (Admins only). */
+    @Column(name = "owner_user_id")
+    private UUID ownerUserId;
+
     @Column(name = "is_active")
     private Boolean isActive;
 

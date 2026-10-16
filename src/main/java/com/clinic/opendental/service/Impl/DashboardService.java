@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
@@ -49,15 +50,16 @@ public class DashboardService {
 
     /** @param includeBilling production, collections and claims only for roles that may see billing */
     public Map<String, Object> summary(LocalDate day, boolean includeBilling) {
-        UUID clinicId = clinicRepository.findByIsActiveTrue().stream().findFirst().map(Clinic::getId)
-                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "No active clinic configured. Please register a clinic in the clinics table."));
+        Clinic clinic = CurrentClinic.requireConnected(clinicRepository);
+        UUID clinicId = clinic.getId();
         LocalDate weekStart = day.with(DayOfWeek.MONDAY);
         LocalDate monthStart = day.withDayOfMonth(1);
         List<String> unavailable = new ArrayList<>();
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("date", day.toString());
+        // Disconnected: the screens show what was copied before; nothing new arrives from Open Dental.
+        out.put("clinic", Map.of("name", clinic.getClinicName(), "connected", Boolean.TRUE.equals(clinic.getIsActive())));
         out.put("appointments", figure("appointments", unavailable, () -> appointments(clinicId, day)));
         out.put("providers", figure("providers", unavailable, () -> providers(clinicId, day)));
         out.put("patients", figure("patients", unavailable, () -> patients(clinicId, day)));

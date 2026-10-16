@@ -167,7 +167,8 @@ export default function HomeDashboard({ search, announce, onNavigate, onNewAppoi
     <div className="mx-auto max-w-[1500px] px-4 pb-10 pt-7 sm:px-6 lg:px-9" data-testid="screen-home-dashboard">
       <section className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500"><span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-rose-500' : 'bg-emerald-500'}`} /> LIVE DATA <span className="text-slate-300">·</span> {weekdayLabel}</p>
+          <p className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500"><span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-rose-500' : data?.clinic && !data.clinic.connected ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            {data?.clinic && !data.clinic.connected ? 'NOT CONNECTED' : 'LIVE DATA'} <span className="text-slate-300">·</span> {weekdayLabel}</p>
           <h1 className="font-[Manrope] text-[25px] font-extrabold tracking-[-1px] text-slate-900 sm:text-[29px]" data-testid="text-greeting">{greeting}<span className="text-blue-600">.</span></h1>
           <p className="mt-1.5 text-[12px] text-slate-500" data-testid="text-today-date">{dateLabel} <span className="mx-1.5 text-slate-300">·</span> Here’s your practice at a glance.</p>
         </div>

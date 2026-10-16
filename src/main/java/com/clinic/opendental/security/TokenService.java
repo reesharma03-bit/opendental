@@ -74,6 +74,7 @@ public class TokenService {
                 .claim("name", user.getFullName())
                 .claim("role", user.getRole().name())
                 .claim("mcp", user.isMustChangePassword())
+                .claim("clinic", user.getClinicId() == null ? "" : user.getClinicId().toString())
                 .build();
         return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }

@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.procedurelog.*;
 import com.clinic.opendental.exception.ApiException;
@@ -63,7 +64,7 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
             return apiResponses;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for procedurelogs, falling back to database: {}", e.getMessage());
-            return procedureLogRepository.findAll().stream()
+            return procedureLogRepository.findByIdClinicId(resolveClinicId()).stream()
                     .map(this::toProcedureLogResponse)
                     .collect(Collectors.toList());
         }
@@ -262,13 +263,9 @@ public class ProcedureLogServiceImpl implements ProcedureLogService {
         }
     }
 
+    /** The clinic of the current request (the signed-in user's, or the one an Admin chose). */
     private UUID resolveClinicId() {
-        List<Clinic> clinics = clinicRepository.findByIsActiveTrue();
-        if (clinics.isEmpty()) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No active clinic configured. Please register a clinic in the clinics table.");
-        }
-        return clinics.get(0).getId();
+        return CurrentClinic.requireConnectedId(clinicRepository);
     }
 
     private ProcedureLog toProcedureLogEntity(ProcedureLogResponse dto) {

@@ -15,4 +15,11 @@ public interface ClinicRepository extends JpaRepository<Clinic, UUID> {
     Optional<Clinic> findByClinicCode(String clinicCode);
 
     List<Clinic> findByIsActiveTrue();
+
+    /** A dentist's clinics, oldest first. */
+    List<Clinic> findByOwnerUserIdOrderByCreatedAtAsc(UUID ownerUserId);
+
+    /** Clinic names are unique, whatever the case. */
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM Clinic c WHERE LOWER(TRIM(c.clinicName)) = LOWER(TRIM(:name))")
+    List<Clinic> findByNameIgnoringCase(@org.springframework.data.repository.query.Param("name") String name);
 }

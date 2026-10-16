@@ -28,11 +28,36 @@ class UserServiceTest {
     void setUp() {
         users = mock(AppUserRepository.class);
         audit = mock(AuditService.class);
-        service = new UserService(users, encoder, audit, 3, 15);
+        service = new UserService(users, mock(com.clinic.opendental.repository.ClinicRepository.class), encoder, audit, 3, 15);
         jane = AppUser.builder().id(UUID.randomUUID()).email("jane@clinic.com").fullName("Jane")
                 .role(Role.FRONT_DESK).active(true).passwordHash(encoder.encode("Correct-horse-42")).build();
         when(users.findByEmail("jane@clinic.com")).thenReturn(Optional.of(jane));
         when(users.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void aDentistSignsUpWithAHashedPasswordAndTheDentistRole() {
+        AppUser created = service.signUpDentist("  Dr Mehta ", " dr.mehta@yourclinic.com ", "Smile-Clinic-2026", null);
+
+        assertThat(created.getRole()).isEqualTo(Role.DENTIST);
+        assertThat(created.getEmail()).isEqualTo("dr.mehta@yourclinic.com");
+        assertThat(created.getFullName()).isEqualTo("Dr Mehta");
+        assertThat(created.getClinicId()).isNull(); // they register (own) their clinics next
+        assertThat(created.isActive()).isTrue();
+        assertThat(created.getPasswordHash()).doesNotContain("Smile-Clinic-2026").startsWith("$2");
+        assertThat(encoder.matches("Smile-Clinic-2026", created.getPasswordHash())).isTrue();
+        verify(audit).record(eq("DENTIST_SIGNED_UP"), any(), any(), eq("dr.mehta@yourclinic.com"), any());
+    }
+
+    @Test
+    void signUpRefusesATakenEmailAWeakPasswordAndAMissingName() {
+        when(users.findByEmail("JANE@clinic.com")).thenReturn(Optional.of(jane)); // the lookup ignores case
+        assertThatThrownBy(() -> service.signUpDentist("Jane Again", "JANE@clinic.com", "Smile-Clinic-2026", null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("already exists");
+        assertThatThrownBy(() -> service.signUpDentist("Dr New", "new@clinic.com", "short1", null)).hasMessageContaining("12");
+        assertThatThrownBy(() -> service.signUpDentist(" ", "new@clinic.com", "Smile-Clinic-2026", null)).hasMessageContaining("name");
+        assertThatThrownBy(() -> service.signUpDentist("Dr New", "not-an-email", "Smile-Clinic-2026", null)).hasMessageContaining("email");
+        verify(users, never()).save(argThat(u -> u != null && u.getRole() == Role.DENTIST));
     }
 
     @Test
@@ -80,9 +105,9 @@ class UserServiceTest {
         when(users.findById(admin.getId())).thenReturn(Optional.of(admin));
         when(users.countByRoleAndActiveTrue(Role.ADMIN)).thenReturn(1L);
 
-        assertThatThrownBy(() -> service.update(admin.getId(), null, "DENTIST", null, null))
+        assertThatThrownBy(() -> service.update(admin.getId(), null, "DENTIST", null, null, null))
                 .isInstanceOf(ApiException.class).hasMessageContaining("at least one active Admin");
-        assertThatThrownBy(() -> service.update(admin.getId(), null, null, false, null))
+        assertThatThrownBy(() -> service.update(admin.getId(), null, null, false, null, null))
                 .isInstanceOf(ApiException.class).hasMessageContaining("at least one active Admin");
     }
 }

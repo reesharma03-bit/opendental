@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.security.Permission;
@@ -441,8 +442,7 @@ public class AssistantTools {
     // ------------------------------------------------------------------ helpers
 
     private UUID clinicId() {
-        return clinicRepository.findByIsActiveTrue().stream().findFirst().map(Clinic::getId)
-                .orElseThrow(() -> new IllegalStateException("No active clinic configured"));
+        return CurrentClinic.requireConnectedId(clinicRepository);
     }
 
     /** Removes fields that must never leave our systems (SSNs, keys), at any depth. */

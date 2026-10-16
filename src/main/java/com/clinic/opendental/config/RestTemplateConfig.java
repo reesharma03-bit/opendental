@@ -14,7 +14,7 @@ public class RestTemplateConfig {
     /**
      * Open Dental's API service rejects any request that is missing the
      * Authorization header with {@code 400 "Malformed API request."}, so the
-     * active clinic's api_key (clinics table) is attached to every outgoing call
+     * current clinic's api_key (clinics table) is attached to every outgoing call
      * that doesn't carry one already.
      *
      * <p>Requests that already carry an Authorization header (a per-clinic key
@@ -25,7 +25,11 @@ public class RestTemplateConfig {
                                      @Value("${opendental.min-request-interval-ms:1000}") long minRequestIntervalMs) {
         return restTemplate(() -> {
             OpenDentalConnection active = connection.getIfAvailable();
-            return active == null ? null : active.apiKey();
+            try {
+                return active == null ? null : active.apiKey();
+            } catch (RuntimeException e) {
+                return null; // no clinic for this call (background work names its own key)
+            }
         }, minRequestIntervalMs);
     }
 

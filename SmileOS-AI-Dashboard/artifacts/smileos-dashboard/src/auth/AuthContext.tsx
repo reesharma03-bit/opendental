@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AUTH_EVENT, type AuthEventDetail } from '../lib/backend';
 import { getMe, signOut as apiSignOut, type Permission, type SignedInUser } from '../lib/backendAuth';
+import { chooseClinic, chosenClinic } from '../lib/backend';
 import { resetCapabilities } from '../lib/databaseResources';
 
 interface AuthState {
@@ -41,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setSignedIn = useCallback((next: SignedInUser) => {
+    // A new sign-in starts on the default clinic (Admins choose one with the clinic switcher).
+    if (chosenClinic()) chooseClinic(null);
     resetCapabilities();
     setNotice('');
     setUser(next);
@@ -50,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiSignOut();
     } finally {
+      chooseClinic(null);
       resetCapabilities();
       setNotice('You have signed out.');
       setUser(null);

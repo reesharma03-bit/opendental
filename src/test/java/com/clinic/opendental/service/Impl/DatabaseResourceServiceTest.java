@@ -1,5 +1,7 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.Role;
+import com.clinic.opendental.security.TestSession;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.patient.CreatePatientRequest;
 import com.clinic.opendental.dto.patient.PatientResponse;
@@ -12,6 +14,7 @@ import com.clinic.opendental.service.ProcedureLogService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -31,7 +34,7 @@ import static org.mockito.Mockito.*;
 class DatabaseResourceServiceTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final Clinic CLINIC = Clinic.builder().id(UUID.randomUUID()).clinicCode("CLINIC_A").build();
+    private static final Clinic CLINIC = Clinic.builder().id(UUID.randomUUID()).clinicCode("CLINIC_A").isActive(true).build();
 
     private ResourceRecordStore records;
     private OdSyncService odSync;
@@ -39,8 +42,14 @@ class DatabaseResourceServiceTest {
     private PatientService patients;
     private DatabaseResourceService service;
 
+    @AfterEach
+    void signOut() {
+        TestSession.clear();
+    }
+
     @BeforeEach
     void setUp() {
+        TestSession.signIn(Role.ADMIN, null);
         records = mock(ResourceRecordStore.class);
         odSync = mock(OdSyncService.class);
         client = mock(OpenDentalClient.class);

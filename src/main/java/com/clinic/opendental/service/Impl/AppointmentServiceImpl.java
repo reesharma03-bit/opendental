@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.appointment.*;
 import com.clinic.opendental.exception.ApiException;
@@ -64,7 +65,7 @@ public class AppointmentServiceImpl implements AppointmentService {
             return apiResponses;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for appointments, falling back to database: {}", e.getMessage());
-            return appointmentRepository.findAll().stream()
+            return appointmentRepository.findByIdClinicId(resolveClinicId()).stream()
                     .map(this::toAppointmentResponse)
                     .collect(Collectors.toList());
         }
@@ -134,7 +135,7 @@ public class AppointmentServiceImpl implements AppointmentService {
             return responses;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for WebSched appointments: {}", e.getMessage());
-            return appointmentRepository.findAll().stream()
+            return appointmentRepository.findByIdClinicId(resolveClinicId()).stream()
                     .map(this::toAppointmentResponse)
                     .collect(Collectors.toList());
         }
@@ -356,13 +357,9 @@ public class AppointmentServiceImpl implements AppointmentService {
         }
     }
 
+    /** The clinic of the current request (the signed-in user's, or the one an Admin chose). */
     private UUID resolveClinicId() {
-        List<Clinic> clinics = clinicRepository.findByIsActiveTrue();
-        if (clinics.isEmpty()) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No active clinic configured. Please register a clinic in the clinics table.");
-        }
-        return clinics.get(0).getId();
+        return CurrentClinic.requireConnectedId(clinicRepository);
     }
 
     private Appointment toAppointmentEntity(AppointmentResponse dto) {

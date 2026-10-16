@@ -27,7 +27,9 @@ import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.ProcedureLog;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.security.AuditService;
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.security.CurrentUser;
+import com.clinic.opendental.security.Role;
 import com.clinic.opendental.service.SyncService;
 import com.clinic.opendental.service.Impl.FullSyncService;
 import com.clinic.opendental.service.Impl.OdSyncService;
@@ -92,8 +94,9 @@ public class SyncController {
      */
     @GetMapping("/clinics")
     public ResponseEntity<Map<String, Object>> clinicSelections() {
+        // The current clinic only: a Dentist's own, or the clinic an Admin chose in the clinic bar.
         List<Map<String, Object>> clinics = new ArrayList<>();
-        for (Clinic clinic : clinicRepository.findAll()) {
+        for (Clinic clinic : CurrentClinic.find(clinicRepository).stream().toList()) {
             Set<String> chosen = syncControl.chosen(clinic.getId());
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("clinicCode", clinic.getClinicCode());
@@ -115,9 +118,9 @@ public class SyncController {
     public ResponseEntity<Map<String, Object>> chooseResources(@PathVariable String clinicCode,
                                                                @RequestBody Map<String, Object> body,
                                                                HttpServletRequest request) {
-        Clinic clinic = clinicRepository.findByClinicCode(clinicCode).orElse(null);
-        if (clinic == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No clinic " + clinicCode));
+        Clinic clinic = CurrentClinic.find(clinicRepository).orElse(null);
+        if (clinic == null || !clinic.getClinicCode().equals(clinicCode)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "You can only change what your clinic syncs."));
         }
         boolean everything = Boolean.TRUE.equals(body.get("everything"));
         Set<String> resources = null;
@@ -166,8 +169,15 @@ public class SyncController {
      * status; if a sync is already running, returns that one.
      */
     @PostMapping("/force")
-    public ResponseEntity<Map<String, Object>> forceSync() {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(fullSyncService.startFullSync("force"));
+    public ResponseEntity<Map<String, Object>> forceSync(@RequestParam(defaultValue = "false") boolean all) {
+        // Every clinic at once: Admins only. Otherwise the current clinic (the user's own, or the
+        // clinic an Admin chose in the clinic bar).
+        if (all && CurrentUser.role() == Role.ADMIN) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(fullSyncService.startFullSync("force"));
+        }
+        Clinic clinic = CurrentClinic.require(clinicRepository);
+        fullSyncService.startFullSync("force", clinic.getId());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(fullSyncService.status(clinic));
     }
 
     /**
@@ -176,7 +186,10 @@ public class SyncController {
      */
     @GetMapping("/force/status")
     public ResponseEntity<Map<String, Object>> forceSyncStatus() {
-        return ResponseEntity.ok(fullSyncService.status());
+        // Admins see the whole run; everyone else only their clinic's part of it.
+        if (CurrentUser.role() == Role.ADMIN) return ResponseEntity.ok(fullSyncService.status());
+        return ResponseEntity.ok(CurrentClinic.find(clinicRepository)
+                .map(fullSyncService::status).orElse(Map.of("state", "idle")));
     }
 
     // ========================================================================

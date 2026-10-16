@@ -1,6 +1,13 @@
 opendental:
   # Each practice's Open Dental address and key (ODFHIR <DeveloperKey>/<CustomerKey>)
-  # live in its clinics row (base_url, api_key), not here.
+  # live in its clinics row (base_url, api_key), created on the dashboard's Open Dental
+  # page. There a practice pastes only its Customer Key; SmileOS adds its Developer Key
+  # (from the Open Dental developer portal, kept in this environment variable only).
+  developer-key: ${OPENDENTAL_DEVELOPER_KEY:}
+  # Address used when a practice connects in Remote mode (the usual case).
+  remote-url: ${OPENDENTAL_REMOTE_URL:https://api.opendental.com/api/v1}
+  # How often Open Dental checks a watched table for webhook events.
+  webhook-polling-seconds: ${OPENDENTAL_WEBHOOK_POLLING_SECONDS:30}
   # Open Dental allows 1 request per second per API key, or 1 per 5 seconds when the key
   # only has read access (ApiReadAll): set 5000 for such keys. Shared by every call.
   min-request-interval-ms: ${OPENDENTAL_MIN_REQUEST_INTERVAL_MS:1000}
@@ -96,6 +103,11 @@ od-sync:
   enabled: ${OD_SYNC_ENABLED:true}
   interval-ms: ${OD_SYNC_INTERVAL_MS:30000}
   max-attempts: ${OD_SYNC_MAX_ATTEMPTS:50}
+
+# SmileOS's public HTTPS address (e.g. https://api.example.com). Open Dental sends webhook
+# events to <public-api-url>/api/webhooks/opendental/<table>; webhook subscriptions are set
+# up automatically once this is set.
+public-api-url: ${PUBLIC_API_URL:}
 
 server:
   port: ${PORT:8080}

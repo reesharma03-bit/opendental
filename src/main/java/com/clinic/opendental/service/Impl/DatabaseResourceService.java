@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.appointment.CreateAppointmentRequest;
 import com.clinic.opendental.dto.appointment.UpdateAppointmentRequest;
@@ -330,9 +331,7 @@ public class DatabaseResourceService {
     }
 
     private Clinic clinic() {
-        return clinicRepository.findByIsActiveTrue().stream().findFirst()
-                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "No active clinic configured. Please register a clinic in the clinics table."));
+        return CurrentClinic.requireConnected(clinicRepository);
     }
 
     private static ApiException notFound(String resource, String key) {

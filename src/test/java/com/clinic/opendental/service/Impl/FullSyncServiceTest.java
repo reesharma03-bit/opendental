@@ -62,7 +62,7 @@ class FullSyncServiceTest {
 
         verify(clinics, times(1)).findByIsActiveTrue();
         assertThat(done.get("state")).isEqualTo("failed");
-        assertThat(done.get("error")).isEqualTo("No active clinics configured");
+        assertThat(done.get("error")).isEqualTo("No connected clinics");
     }
 
     @Test

@@ -18,6 +18,8 @@ export interface DashboardAppointment {
 export interface DailyAmount { day: string; date: string; value: number }
 
 export interface DashboardSummary {
+  /** The clinic shown; not connected = the data is what was copied before it was disconnected. */
+  clinic?: { name: string; connected: boolean };
   date: string;
   appointments: {
     today: number;

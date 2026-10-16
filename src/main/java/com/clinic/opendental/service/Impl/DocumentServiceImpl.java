@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.document.*;
 import com.clinic.opendental.exception.ApiException;
@@ -221,13 +222,9 @@ public class DocumentServiceImpl implements DocumentService {
         }
     }
 
+    /** The clinic of the current request (the signed-in user's, or the one an Admin chose). */
     private UUID resolveClinicId() {
-        List<Clinic> clinics = clinicRepository.findByIsActiveTrue();
-        if (clinics.isEmpty()) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No active clinic configured. Please register a clinic in the clinics table.");
-        }
-        return clinics.get(0).getId();
+        return CurrentClinic.requireConnectedId(clinicRepository);
     }
 
     /** Open Dental returns PatNum as text on documents. */

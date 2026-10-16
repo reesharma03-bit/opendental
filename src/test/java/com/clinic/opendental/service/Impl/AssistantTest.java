@@ -1,5 +1,7 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.Role;
+import com.clinic.opendental.security.TestSession;
 import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
@@ -8,6 +10,7 @@ import com.clinic.opendental.security.PermissionResolver;
 import com.clinic.opendental.security.Role;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -33,10 +36,16 @@ class AssistantTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private AssistantTools tools;
 
+    @AfterEach
+    void signOut() {
+        TestSession.clear();
+    }
+
     @BeforeEach
     void setUp() {
+        TestSession.signIn(Role.ADMIN, null);
         ClinicRepository clinics = mock(ClinicRepository.class);
-        when(clinics.findByIsActiveTrue()).thenReturn(List.of(Clinic.builder().id(UUID.randomUUID()).build()));
+        when(clinics.findByIsActiveTrue()).thenReturn(List.of(Clinic.builder().id(UUID.randomUUID()).isActive(true).build()));
         tools = new AssistantTools(mock(JdbcTemplate.class), clinics, mock(DashboardService.class), mock(ResourceRecordStore.class),
                 new PermissionResolver());
     }

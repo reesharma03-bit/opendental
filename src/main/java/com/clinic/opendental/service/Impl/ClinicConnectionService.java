@@ -1,13 +1,19 @@
 package com.clinic.opendental.service.Impl;
 
 import com.clinic.opendental.client.OpenDentalClient;
-import com.clinic.opendental.config.OpenDentalConnection;
 import com.clinic.opendental.dto.clinic.ClinicResponse;
 import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.repository.ClinicRepository;
+import com.clinic.opendental.security.AppUser;
+import com.clinic.opendental.security.AppUserRepository;
+import com.clinic.opendental.security.CurrentClinic;
+import com.clinic.opendental.security.CurrentUser;
+import com.clinic.opendental.security.Role;
 import com.clinic.opendental.service.WebhookClinics;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
@@ -28,6 +34,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -44,6 +53,10 @@ import java.util.concurrent.Executors;
  * clinic's subscriptions are listed first, ours (recognised by that path) are corrected and only
  * missing ones are added; other apps' subscriptions are left alone. Done when a practice
  * connects, shortly after the API starts, and nightly.</p>
+ *
+ * <p>Setting them up takes one Open Dental call per subscription (about a second each), so it
+ * runs in the background; the page shows the result of the last check, saved in
+ * clinic_webhooks, instead of asking Open Dental every time it opens.</p>
  *
  * <p>Events are sent from the office computer the practice names (Open Dental's Workstation),
  * or from every computer until one is named. With several computers that can mean the same
@@ -70,7 +83,7 @@ public class ClinicConnectionService {
 
     private final ClinicRepository clinics;
     private final OpenDentalClient client;
-    private final OpenDentalConnection connection;
+    private final AppUserRepository users;
     private final ResourceMirrorService mirror;
     private final FullSyncService fullSync;
     private final SyncControl syncControl;
@@ -80,14 +93,17 @@ public class ClinicConnectionService {
     private final String remoteUrl;
     private final String publicUrl;
     private final int pollingSeconds;
-    /** Removing webhooks after a disconnect: one Open Dental call a second, so not while the page waits. */
+    private static final ObjectMapper JSON = new ObjectMapper();
+    /** Clinics whose webhooks are being set up right now (shown on the page). */
+    private final Set<UUID> settingUp = ConcurrentHashMap.newKeySet();
+    /** Webhook setup and removal: one Open Dental call a second, so not while the page waits. */
     Executor background = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "od-webhook-removal");
         thread.setDaemon(true);
         return thread;
     });
 
-    public ClinicConnectionService(ClinicRepository clinics, OpenDentalClient client, OpenDentalConnection connection,
+    public ClinicConnectionService(ClinicRepository clinics, OpenDentalClient client, AppUserRepository users,
                                    ResourceMirrorService mirror, FullSyncService fullSync, SyncControl syncControl,
                                    JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
                                    @Value("${opendental.developer-key:}") String developerKey,
@@ -96,7 +112,7 @@ public class ClinicConnectionService {
                                    @Value("${opendental.webhook-polling-seconds:30}") int pollingSeconds) {
         this.clinics = clinics;
         this.client = client;
-        this.connection = connection;
+        this.users = users;
         this.mirror = mirror;
         this.fullSync = fullSync;
         this.syncControl = syncControl;
@@ -123,9 +139,121 @@ public class ClinicConnectionService {
         return publicUrl;
     }
 
-    /** The practice's connected clinic (the dashboard serves one practice), or null. */
+    /**
+     * The clinic this request works on (connected or not): an Admin's chosen clinic, or the
+     * signed-in user's own. Null when there is none yet (e.g. a Dentist who hasn't registered).
+     */
     public Clinic current() {
-        return clinics.findByIsActiveTrue().stream().findFirst().orElse(null);
+        return CurrentClinic.find(clinics).orElse(null);
+    }
+
+    /** One row per clinic the user may see: every clinic for an Admin, their own for anyone else. */
+    public List<Map<String, Object>> visibleClinics() {
+        List<Clinic> visible;
+        Role role = CurrentUser.role();
+        if (role == Role.ADMIN) {
+            visible = clinics.findAll();
+        } else if (role == Role.DENTIST) {
+            visible = CurrentUser.id() == null ? List.of() : clinics.findByOwnerUserIdOrderByCreatedAtAsc(CurrentUser.id());
+        } else {
+            Clinic own = current();
+            visible = own == null ? List.of() : List.of(own);
+        }
+        visible = visible.stream()
+                .sorted(java.util.Comparator.comparing(c -> c.getClinicName() == null ? "" : c.getClinicName().toLowerCase(Locale.ROOT)))
+                .toList();
+        Map<UUID, Map<String, Object>> stats = clinicStats();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Clinic c : visible) {
+            Map<String, Object> row = describe(c);
+            row.putAll(stats.getOrDefault(c.getId(), Map.of()));
+            out.add(row);
+        }
+        return out;
+    }
+
+    /** A clinic as the Open Dental page shows it; the key only by its last four characters. */
+    public Map<String, Object> describe(Clinic clinic) {
+        Map<String, Object> c = new LinkedHashMap<>();
+        c.put("clinicCode", clinic.getClinicCode());
+        c.put("clinicName", clinic.getClinicName());
+        c.put("connected", Boolean.TRUE.equals(clinic.getIsActive()));
+        c.put("baseUrl", clinic.getBaseUrl());
+        c.put("key", clinic.getApiKey() == null || clinic.getApiKey().isBlank() ? "" : maskedKey(clinic.getApiKey()));
+        c.put("workstation", workstation(clinic));
+        c.put("createdAt", clinic.getCreatedAt() == null ? null : clinic.getCreatedAt().toString());
+        AppUser owner = clinic.getOwnerUserId() == null ? null : users.findById(clinic.getOwnerUserId()).orElse(null);
+        c.put("ownerUserId", owner == null ? null : owner.getId());
+        c.put("ownerName", owner == null ? null : owner.getFullName());
+        c.put("ownerEmail", owner == null ? null : owner.getEmail());
+        return c;
+    }
+
+    /**
+     * For an Admin registering a clinic: whether a user with this email exists and is a dentist.
+     * {"exists": false} when nobody has it (the Admin can then create the dentist account).
+     */
+    public Map<String, Object> findDentist(String email) {
+        requireAdmin();
+        String clean = email == null ? "" : email.trim();
+        if (!clean.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Enter the dentist's email address.");
+        }
+        AppUser user = users.findByEmail(clean).orElse(null);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("exists", user != null);
+        if (user != null) {
+            out.put("id", user.getId());
+            out.put("fullName", user.getFullName());
+            out.put("email", user.getEmail());
+            out.put("role", user.getRole().name());
+            out.put("roleLabel", user.getRole().label());
+            out.put("active", user.isActive());
+            out.put("isDentist", user.getRole() == Role.DENTIST);
+        }
+        return out;
+    }
+
+    /** The dentist a clinic is registered for: must exist, be active and have the DENTIST role. */
+    private AppUser requireDentist(UUID userId) {
+        if (userId == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose the dentist this clinic belongs to (look them up by email, or create their account).");
+        }
+        AppUser dentist = users.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "That dentist account doesn't exist."));
+        if (dentist.getRole() != Role.DENTIST) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, dentist.getEmail() + " is a " + dentist.getRole().label()
+                    + " user, not a dentist. A clinic belongs to a dentist.");
+        }
+        if (!dentist.isActive()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, dentist.getEmail() + " is deactivated. Reactivate it on the Users page first.");
+        }
+        return dentist;
+    }
+
+    private static void requireAdmin() {
+        if (CurrentUser.role() != Role.ADMIN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only a SmileOS admin can do this.");
+        }
+    }
+
+    /** Patients, users and the last sync per clinic, in three queries (missing tables are skipped). */
+    private Map<UUID, Map<String, Object>> clinicStats() {
+        Map<UUID, Map<String, Object>> stats = new java.util.HashMap<>();
+        java.util.function.BiConsumer<String, String> add = (sql, key) -> {
+            try {
+                jdbc.query(sql, rs -> {
+                    UUID id = rs.getObject(1, UUID.class);
+                    if (id != null) stats.computeIfAbsent(id, k -> new LinkedHashMap<>()).put(key, rs.getObject(2));
+                });
+            } catch (Exception e) {
+                log.debug("Clinic statistic {} unavailable: {}", key, e.getMessage());
+            }
+        };
+        add.accept("SELECT clinic_id, count(*) FROM patients GROUP BY clinic_id", "patients");
+        add.accept("SELECT clinic_id, count(*) FROM app_users WHERE active GROUP BY clinic_id", "users");
+        add.accept("SELECT clinic_id, max(started_at)::text FROM sync_runs GROUP BY clinic_id", "lastSyncAt");
+        return stats;
     }
 
     /**
@@ -200,59 +328,179 @@ public class ClinicConnectionService {
     }
 
     /**
-     * Connects the practice: tests the key, saves the clinic, sets up webhooks (when a public
-     * address is set) and starts the first full sync.
+     * Registers a new clinic: tests the key, saves the clinic, sets up webhooks (when a public
+     * address is set) and starts its first full sync. An Admin may register any number of
+     * clinics; a Dentist registers one, and their account is then tied to it. A new clinic always
+     * gets its own code, so nobody can attach themselves to an existing clinic by its name.
      */
-    public Map<String, Object> connect(String name, String keyInput, String baseUrl, String workstation) {
-        if (current() != null) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "Open Dental is already connected. Change the key or disconnect it first.");
+    public Map<String, Object> register(String name, String keyInput, String baseUrl, String workstation) {
+        return register(name, keyInput, baseUrl, workstation, null);
+    }
+
+    /**
+     * @param dentistUserId the dentist the clinic belongs to: chosen by an Admin (required);
+     *                      ignored for a Dentist, who always registers their own clinic
+     */
+    public Map<String, Object> register(String name, String keyInput, String baseUrl, String workstation, UUID dentistUserId) {
+        Role role = CurrentUser.role();
+        AppUser owner;
+        if (role == Role.ADMIN) {
+            owner = requireDentist(dentistUserId);
+        } else if (role == Role.DENTIST) {
+            owner = users.findById(CurrentUser.id())
+                    .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Please sign in again."));
+        } else {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only a dentist or a SmileOS admin can register a clinic.");
         }
-        String clinicName = name == null ? "" : name.trim();
-        if (clinicName.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Give the practice a name.");
-        }
+        String clinicName = requireUniqueName(name, null);
         String apiKey = composeKey(keyInput);
+        requireUnusedKey(apiKey, null);
         String address = requireAddress(baseUrl);
         Test test = check(apiKey, address);
         if (!test.ok()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, test.message());
         }
-        Clinic clinic = clinics.findByClinicCode(codeFor(clinicName)).filter(c -> !Boolean.TRUE.equals(c.getIsActive()))
-                .orElseGet(Clinic::new);
+        Clinic clinic = new Clinic();
         clinic.setClinicName(clinicName);
-        if (clinic.getClinicCode() == null) clinic.setClinicCode(uniqueCode(clinicName));
+        clinic.setClinicCode(uniqueCode(clinicName));
         clinic.setBaseUrl(address);
         clinic.setApiKey(apiKey);
         clinic.setIsActive(true);
-        clinic = clinics.saveAndFlush(clinic);
-        connection.refresh();
+        clinic.setOwnerUserId(owner.getId());
+        clinic = saveClinic(clinic);
         saveWorkstation(clinic, workstation);
-        List<Webhook> webhooks = trySetUpWebhooks(clinic);
-        startFirstSync();
+        // Webhooks first, then the first full sync, so the setup isn't queued behind the sync's calls.
+        Clinic saved = clinic;
+        setUpInBackground(clinic, () -> startFirstSync(saved));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("message", test.message());
-        result.put("webhooks", webhooks);
+        result.put("clinicCode", clinic.getClinicCode());
+        result.put("clinicName", clinic.getClinicName());
+        result.put("ownerEmail", owner.getEmail());
         return result;
     }
 
-    /** A new key (or address) for the connected practice; webhooks are set up again for it. */
-    public Map<String, Object> changeKey(String keyInput, String baseUrl) {
-        Clinic clinic = requireCurrent();
-        String apiKey = composeKey(keyInput);
-        String address = baseUrl == null || baseUrl.isBlank() ? clinic.getBaseUrl() : trimUrl(baseUrl);
-        Test test = check(apiKey, address);
-        if (!test.ok()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, test.message());
+    /**
+     * Edits the current clinic: its name, Open Dental address, office computer and (optionally) its
+     * Customer Key. A disconnected clinic needs a key and is connected again. A new key or address
+     * is tested before anything is saved; webhooks are set up again when the connection changed.
+     */
+    public Map<String, Object> update(String name, String keyInput, String baseUrl, String workstation) {
+        return update(name, keyInput, baseUrl, workstation, null);
+    }
+
+    /** @param dentistUserId a new owner (Admins only; null keeps the current one) */
+    public Map<String, Object> update(String name, String keyInput, String baseUrl, String workstation, UUID dentistUserId) {
+        return update(null, name, keyInput, baseUrl, workstation, dentistUserId);
+    }
+
+    /** @param clinicCode the clinic to edit (checked: an Admin any, a Dentist their own); null = the current clinic */
+    public Map<String, Object> update(String clinicCode, String name, String keyInput, String baseUrl, String workstation,
+                                      UUID dentistUserId) {
+        Clinic clinic = manageable(clinicCode);
+        if (dentistUserId != null && !dentistUserId.equals(clinic.getOwnerUserId())) {
+            requireAdmin();
+            clinic.setOwnerUserId(requireDentist(dentistUserId).getId());
         }
-        clinic.setApiKey(apiKey);
+        boolean connected = Boolean.TRUE.equals(clinic.getIsActive());
+        String clinicName = requireUniqueName(name, clinic);
+        String address = requireAddress(baseUrl);
+        boolean newKey = keyInput != null && !keyInput.isBlank();
+        if (!connected && !newKey) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    clinic.getClinicName() + " isn't connected: paste its Customer Key to connect it again.");
+        }
+        String apiKey = newKey ? composeKey(keyInput) : clinic.getApiKey();
+        if (newKey || !connected) requireUnusedKey(apiKey, clinic);
+        boolean connectionChanged = !connected || newKey || !address.equals(trimUrl(clinic.getBaseUrl()));
+        String message = "Saved.";
+        if (connectionChanged) {
+            Test test = check(apiKey, address);
+            if (!test.ok()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, test.message());
+            }
+            message = test.message();
+        }
+        String station = workstation == null ? "" : workstation.trim();
+        boolean stationChanged = !station.isEmpty() && !station.equalsIgnoreCase(workstation(clinic));
+        clinic.setClinicName(clinicName);
         clinic.setBaseUrl(address);
-        clinics.saveAndFlush(clinic);
-        connection.refresh();
+        clinic.setApiKey(apiKey);
+        clinic.setIsActive(true);
+        clinic = saveClinic(clinic);
+        if (stationChanged) saveWorkstation(clinic, station);
+        if (!connected) {
+            Clinic saved = clinic;
+            setUpInBackground(clinic, () -> startFirstSync(saved));
+        } else if (connectionChanged || stationChanged) {
+            setUpInBackground(clinic, null);
+        }
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("message", test.message());
-        result.put("webhooks", trySetUpWebhooks(clinic));
+        result.put("message", connected ? message : message + " " + clinicName + " is connected again.");
+        result.put("clinicCode", clinic.getClinicCode());
+        result.put("clinicName", clinic.getClinicName());
         return result;
+    }
+
+    /**
+     * Two connected clinics never share a Customer Key: they would be the same Open Dental
+     * database, and its webhooks couldn't tell them apart. A disconnected clinic doesn't hold on
+     * to its key (a new clinic may use it), but it can't be connected again while another
+     * connected clinic uses it. A dentist with several clinics connects each with its own key.
+     */
+    private void requireUnusedKey(String apiKey, Clinic self) {
+        String customerKey = WebhookClinics.customerKey(apiKey);
+        if (customerKey.isEmpty()) return;
+        Clinic other = clinics.findAll().stream()
+                .filter(c -> self == null || !c.getId().equals(self.getId()))
+                .filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                .filter(c -> customerKey.equals(WebhookClinics.customerKey(c.getApiKey())))
+                .findFirst().orElse(null);
+        if (other == null) return;
+        boolean admin = CurrentUser.role() == Role.ADMIN;
+        boolean ownClinic = CurrentUser.id() != null && CurrentUser.id().equals(other.getOwnerUserId());
+        throw keyInUse(admin || ownClinic ? "connected clinic \"" + other.getClinicName() + "\" (" + other.getClinicCode() + ")"
+                : "another connected clinic");
+    }
+
+    private static ApiException keyInUse(String byWhom) {
+        return new ApiException(HttpStatus.CONFLICT, "This Customer Key is already used by " + byWhom
+                + ". Two connected clinics can't share a key: each connects with its own Customer Key from its own Open Dental"
+                + " (or disconnect the other clinic first).");
+    }
+
+    /** Saves a clinic; the database's own rule (one Customer Key per connected clinic) answers in plain words too. */
+    private Clinic saveClinic(Clinic clinic) {
+        try {
+            return clinics.saveAndFlush(clinic);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            String detail = String.valueOf(e.getMostSpecificCause().getMessage());
+            if (detail.contains("customer_key_idx")) throw keyInUse("another connected clinic");
+            throw e;
+        }
+    }
+
+    /**
+     * A clinic name nobody else uses (ignoring case). {@code self} may always keep its own name,
+     * even if another clinic has it too (two clinics registered before names had to differ).
+     */
+    private String requireUniqueName(String name, Clinic self) {
+        String clinicName = name == null ? "" : name.trim();
+        if (clinicName.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Give the practice a name.");
+        }
+        if (self != null && self.getClinicName() != null && clinicName.equalsIgnoreCase(self.getClinicName().trim())) {
+            return clinicName;
+        }
+        boolean taken = clinics.findByNameIgnoringCase(clinicName).stream()
+                .anyMatch(other -> self == null || !other.getId().equals(self.getId()));
+        if (taken) {
+            throw new ApiException(HttpStatus.CONFLICT, "A clinic named \"" + clinicName + "\" already exists. "
+                    + (CurrentUser.role() == Role.ADMIN
+                        ? "Use Edit on that clinic to change or reconnect it, or choose another name."
+                        : "Choose another name, or ask your SmileOS admin."));
+        }
+        return clinicName;
     }
 
     /**
@@ -260,12 +508,55 @@ public class ClinicConnectionService {
      * on), then removes SmileOS's webhook subscriptions in Open Dental in the background.
      */
     public void disconnect() {
-        Clinic clinic = requireCurrent();
+        disconnect(null);
+    }
+
+    /** @return the clinic that was disconnected */
+    public Clinic disconnect(String clinicCode) {
+        Clinic clinic = manageable(clinicCode);
+        if (!Boolean.TRUE.equals(clinic.getIsActive())) {
+            throw new ApiException(HttpStatus.CONFLICT, clinic.getClinicName() + " isn't connected.");
+        }
         clinic.setIsActive(false);
         clinics.saveAndFlush(clinic);
-        connection.refresh();
-        fullSync.stop("Disconnected");
+        fullSync.stop(clinic.getId(), "Disconnected");
         background.execute(() -> removeWebhooks(clinic));
+        return clinic;
+    }
+
+    /**
+     * Removes a disconnected clinic for good: the clinic and everything copied for it (patients,
+     * appointments, records, sync history; the database deletes them with the clinic). Staff
+     * linked to it are unlinked, not deleted; the audit log keeps its entries. Only a disconnected
+     * clinic can be removed, and the user confirms by typing its name.
+     *
+     * @return "Name (CODE)" of the removed clinic
+     */
+    public String remove(String clinicCode, String confirmName) {
+        if (clinicCode == null || clinicCode.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose the clinic to remove.");
+        }
+        Clinic clinic = manageable(clinicCode);
+        if (Boolean.TRUE.equals(clinic.getIsActive())) {
+            throw new ApiException(HttpStatus.CONFLICT, clinic.getClinicName() + " is connected. Disconnect it first; only a disconnected clinic can be removed.");
+        }
+        String typed = confirmName == null ? "" : confirmName.trim();
+        if (clinic.getClinicName() == null || !typed.equalsIgnoreCase(clinic.getClinicName().trim())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Type the clinic's name (" + clinic.getClinicName() + ") to confirm removing it.");
+        }
+        String label = clinic.getClinicName() + " (" + clinic.getClinicCode() + ")";
+        fullSync.stop(clinic.getId(), "Removed");
+        try {
+            // The staging table has no link to clinics, so its rows go explicitly.
+            tx.executeWithoutResult(s -> jdbc.update("DELETE FROM od_sync_staging WHERE clinic_id = ?", clinic.getId()));
+        } catch (Exception e) {
+            log.debug("Nothing to clear in od_sync_staging for {}: {}", label, e.getMessage());
+        }
+        clinics.delete(clinic);
+        clinics.flush();
+        settingUp.remove(clinic.getId());
+        log.info("Removed clinic {} and its data", label);
+        return label;
     }
 
     private void removeWebhooks(Clinic clinic) {
@@ -306,14 +597,73 @@ public class ClinicConnectionService {
         }
     }
 
-    public List<Webhook> saveWorkstationAndSetUp(String workstation) {
-        Clinic clinic = requireCurrent();
+    public void saveWorkstationAndSetUp(String workstation) {
+        saveWorkstationAndSetUp(null, workstation);
+    }
+
+    public void saveWorkstationAndSetUp(String clinicCode, String workstation) {
+        Clinic clinic = manageable(clinicCode);
         String name = workstation == null ? "" : workstation.trim();
         if (name.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Enter the name of the office computer that runs the Open Dental API Service.");
         }
         saveWorkstation(clinic, name);
-        return setUpWebhooks(clinic);
+        setUpInBackground(clinic, null);
+    }
+
+    /** "Check and repair": runs in the background; the page shows progress. */
+    public void repairInBackground() {
+        repairInBackground(null);
+    }
+
+    public void repairInBackground(String clinicCode) {
+        setUpInBackground(manageable(clinicCode), null);
+    }
+
+    public boolean isSettingUp(Clinic clinic) {
+        return settingUp.contains(clinic.getId());
+    }
+
+    private void setUpInBackground(Clinic clinic, Runnable then) {
+        if (!settingUp.add(clinic.getId())) return; // already running
+        background.execute(() -> {
+            try {
+                trySetUpWebhooks(clinic);
+            } finally {
+                settingUp.remove(clinic.getId());
+                if (then != null) then.run();
+            }
+        });
+    }
+
+    /** The result of the last check (saved), or why there is none; no call to Open Dental. */
+    public List<Webhook> lastStatus(Clinic clinic) {
+        String problem = notReady(clinic);
+        if (problem != null) {
+            return wanted().stream().map(w -> new Webhook(w.event(), "off", problem)).toList();
+        }
+        try {
+            List<String> rows = jdbc.queryForList("SELECT check_result FROM clinic_webhooks WHERE clinic_id = ?",
+                    String.class, clinic.getId());
+            String saved = rows.isEmpty() ? null : rows.get(0);
+            if (saved != null && saved.startsWith("[")) {
+                return JSON.readValue(saved, new TypeReference<List<Webhook>>() { });
+            }
+        } catch (Exception e) {
+            log.debug("No saved webhook check for {}: {}", clinic.getClinicCode(), e.getMessage());
+        }
+        return List.of();
+    }
+
+    /** When the webhooks were last checked, or null. */
+    public java.sql.Timestamp lastChecked(Clinic clinic) {
+        try {
+            List<java.sql.Timestamp> rows = jdbc.queryForList("SELECT checked_at FROM clinic_webhooks WHERE clinic_id = ?",
+                    java.sql.Timestamp.class, clinic.getId());
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void saveWorkstation(Clinic clinic, String workstation) {
@@ -332,10 +682,18 @@ public class ClinicConnectionService {
     private List<Webhook> trySetUpWebhooks(Clinic clinic) {
         try {
             return setUpWebhooks(clinic);
+        } catch (HttpStatusCodeException e) {
+            return recordFailure(clinic, explain(e));
         } catch (Exception e) {
-            log.warn("Webhook setup for {} failed: {}", clinic.getClinicCode(), e.getMessage());
-            return List.of(new Webhook("all", "failed", e.getMessage()));
+            return recordFailure(clinic, e.getMessage());
         }
+    }
+
+    private List<Webhook> recordFailure(Clinic clinic, String message) {
+        log.warn("Webhook setup for {} failed: {}", clinic.getClinicCode(), message);
+        List<Webhook> result = List.of(new Webhook("all", "failed", message));
+        recordCheck(clinic, result);
+        return result;
     }
 
     /**
@@ -405,35 +763,6 @@ public class ClinicConnectionService {
             retry.put("Workstation", ALL_WORKSTATIONS); // Open Dental 26.2.1 and later
             return client.sendRaw(HttpMethod.POST, "/subscriptions", retry, clinic.getBaseUrl(), clinic.getApiKey());
         }
-    }
-
-    /** How the wanted subscriptions stand in Open Dental now, without changing anything. */
-    public List<Webhook> webhookStatus(Clinic clinic) {
-        String problem = notReady(clinic);
-        if (problem != null) {
-            return wanted().stream().map(w -> new Webhook(w.event(), "off", problem)).toList();
-        }
-        List<JsonNode> existing;
-        try {
-            existing = subscriptions(clinic);
-        } catch (HttpStatusCodeException e) {
-            return List.of(new Webhook("all", "failed", explain(e)));
-        } catch (Exception e) {
-            return List.of(new Webhook("all", "failed", e.getMessage()));
-        }
-        List<Webhook> result = new ArrayList<>();
-        for (Wanted want : wanted()) {
-            JsonNode found = existing.stream().filter(s -> isOurs(s) && want.matches(s)).findFirst().orElse(null);
-            String url = publicUrl + WEBHOOK_PATH + want.path();
-            if (found == null) {
-                result.add(new Webhook(want.event(), "missing", "Not set up in Open Dental"));
-            } else if (!url.equals(found.path("EndPointUrl").asText())) {
-                result.add(new Webhook(want.event(), "missing", "Points at an old address: " + found.path("EndPointUrl").asText()));
-            } else {
-                result.add(stateOf(want.event(), found, false));
-            }
-        }
-        return result;
     }
 
     /** Shortly after the API starts (once), so a connected practice gets its webhooks without a click. */
@@ -510,11 +839,12 @@ public class ClinicConnectionService {
     }
 
     private void recordCheck(Clinic clinic, List<Webhook> result) {
-        long ok = result.stream().filter(w -> "ok".equals(w.state())).count();
         try {
+            String json = JSON.writeValueAsString(result);
             tx.executeWithoutResult(s -> jdbc.update("""
-                    UPDATE clinic_webhooks SET checked_at = now(), check_result = ?, updated_at = now() WHERE clinic_id = ?
-                    """, ok + " of " + result.size() + " active", clinic.getId()));
+                    INSERT INTO clinic_webhooks (clinic_id, checked_at, check_result, updated_at) VALUES (?, now(), ?, now())
+                    ON CONFLICT (clinic_id) DO UPDATE SET checked_at = now(), check_result = EXCLUDED.check_result, updated_at = now()
+                    """, clinic.getId(), json));
         } catch (Exception e) {
             log.debug("Could not record the webhook check: {}", e.getMessage());
         }
@@ -530,17 +860,35 @@ public class ClinicConnectionService {
         }
     }
 
-    private void startFirstSync() {
+    private void startFirstSync(Clinic clinic) {
         try {
-            if (!syncControl.paused()) fullSync.startFullSync("connect");
+            if (!syncControl.paused()) fullSync.startFullSync("connect", clinic.getId());
         } catch (Exception e) {
             log.warn("Could not start the first sync: {}", e.getMessage());
         }
     }
 
+    /**
+     * The clinic an action names by its code, after checking the user may manage it: an Admin any
+     * clinic, a Dentist only one they own. No code: the current clinic (the switcher's choice).
+     */
+    public Clinic manageable(String clinicCode) {
+        if (clinicCode == null || clinicCode.isBlank()) return requireCurrent();
+        String code = clinicCode.trim();
+        Clinic clinic = clinics.findByClinicCode(code)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "There is no clinic " + code + "."));
+        Role role = CurrentUser.role();
+        boolean allowed = role == Role.ADMIN
+                || (role == Role.DENTIST && CurrentUser.id() != null && CurrentUser.id().equals(clinic.getOwnerUserId()));
+        if (!allowed) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "You don't have access to clinic " + code + ".");
+        }
+        return clinic;
+    }
+
     private Clinic requireCurrent() {
         Clinic clinic = current();
-        if (clinic == null) throw new ApiException(HttpStatus.NOT_FOUND, "Open Dental isn't connected yet.");
+        if (clinic == null) throw new ApiException(HttpStatus.NOT_FOUND, "There is no clinic yet. Register one first.");
         return clinic;
     }
 

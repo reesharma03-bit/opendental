@@ -151,6 +151,25 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
     return () => { live = false; };
   }, []);
 
+  // Keep the directory current like the dashboard: patients copied from Open Dental since the
+  // screen opened (a new clinic's first sync, webhooks, the per-minute change pull) appear by themselves.
+  useEffect(() => {
+    if (!backendOn || !backendAvailable()) return undefined;
+    const timer = window.setInterval(() => {
+      listSupabasePatients('')
+        .then((rows) => {
+          setPatients((current) => {
+            const fresh = rows.map(toRecord);
+            const known = new Set(fresh.map((p) => p.recordKey || p.id));
+            // keep records added on this screen that the directory doesn't list yet
+            return [...fresh, ...current.filter((p) => !known.has(p.recordKey || p.id) && !p.recordKey)];
+          });
+        })
+        .catch(() => undefined);
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [backendOn]);
+
   // Debounced Supabase-backed search supplements local filtering so records
   // beyond the currently loaded result set can still be found.
   useEffect(() => {
@@ -345,7 +364,7 @@ export default function PatientsScreen({ search, onSearchChange, announce, creat
                 <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${patient.PatStatus === 'Patient' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`} data-testid={`status-patient-${patient.id}`}>{patient.PatStatus || 'Unspecified'}</span></td>
                 <td className="sticky right-0 z-10 bg-white px-5 py-3 text-right shadow-[-8px_0_10px_rgba(15,23,42,.04)] sm:px-6"><div className="inline-flex gap-1.5">{toPatNum(patient) > 0 && <button type="button" onClick={() => { setOpenRecord(toWorkspacePatient(patient)); window.scrollTo({ top: 0, behavior: 'smooth' }); }} data-testid={`button-open-record-${patient.id}`} aria-label={`Open record for ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"><FileText size={12} /> Record</button>}<button onClick={() => openEdit(patient)} data-testid={`button-edit-patient-${patient.id}`} aria-label={`Edit ${patientName(patient)}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></div></td>
               </tr>)}
-              {visiblePatients.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center" data-testid="empty-patient-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">No matching patients</p><p className="mt-1 text-[10px] text-slate-400">Try a different name, ID, email or phone number.</p></td></tr>}
+              {visiblePatients.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center" data-testid="empty-patient-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">{search.trim() ? 'No matching patients' : 'No patients yet'}</p><p className="mt-1 text-[10px] text-slate-400">{search.trim() ? 'Try a different name, ID, email or phone number.' : "A newly connected clinic's first sync may still be copying them from Open Dental; this list refreshes every minute."}</p></td></tr>}
             </tbody>
           </table>
         </div>

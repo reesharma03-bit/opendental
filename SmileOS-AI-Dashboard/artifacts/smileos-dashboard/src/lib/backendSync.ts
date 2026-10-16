@@ -13,7 +13,8 @@ export interface SyncResourceResult {
 }
 
 export interface SyncStatus {
-  state: 'idle' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'paused';
+  /** queued: this clinic's sync waits for another clinic's to end. */
+  state: 'idle' | 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'paused';
   type?: 'full' | 'resources';
   trigger?: string;
   startedAt?: string;
@@ -27,7 +28,9 @@ export interface SyncStatus {
   results?: SyncResourceResult[];
 }
 
-export const startForceSync = () => request<SyncStatus>('/api/sync/force', { method: 'POST' });
+/** The current clinic; {@code all} (Admins only) every clinic at once. */
+export const startForceSync = (all = false) =>
+  request<SyncStatus>(`/api/sync/force${all ? '?all=true' : ''}`, { method: 'POST' });
 
 export const getSyncStatus = () => request<SyncStatus>('/api/sync/force/status');
 

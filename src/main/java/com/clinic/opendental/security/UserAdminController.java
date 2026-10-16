@@ -20,8 +20,8 @@ import java.util.UUID;
  *
  * GET  /api/users                       all users
  * GET  /api/users/roles                 roles and what each may do
- * POST /api/users                       {"email", "fullName", "role", "password"} (temporary password)
- * PUT  /api/users/{id}                  {"fullName"?, "role"?, "active"?}
+ * POST /api/users                       {"email", "fullName", "role", "password", "clinicCode"} (temporary password)
+ * PUT  /api/users/{id}                  {"fullName"?, "role"?, "active"?, "clinicCode"?}
  * POST /api/users/{id}/reset-password   {"password"} (temporary password)
  * GET  /api/audit?limit=200             recent audit trail
  */
@@ -32,10 +32,12 @@ public class UserAdminController {
     private final UserService userService;
     private final AuditEventRepository events;
 
-    public record CreateUserRequest(String email, @JsonAlias("fullName") String fullName, String role, String password) {
+    public record CreateUserRequest(String email, @JsonAlias("fullName") String fullName, String role, String password,
+                                    @JsonAlias("clinicCode") String clinicCode) {
     }
 
-    public record UpdateUserRequest(@JsonAlias("fullName") String fullName, String role, Boolean active) {
+    public record UpdateUserRequest(@JsonAlias("fullName") String fullName, String role, Boolean active,
+                                    @JsonAlias("clinicCode") String clinicCode) {
     }
 
     public record ResetPasswordRequest(String password) {
@@ -60,12 +62,12 @@ public class UserAdminController {
     @PostMapping("/api/users")
     public ResponseEntity<Map<String, Object>> create(@RequestBody CreateUserRequest body, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(userService.create(body.email(), body.fullName(), body.role(), body.password(), request));
+                .body(userService.create(body.email(), body.fullName(), body.role(), body.password(), body.clinicCode(), request));
     }
 
     @PutMapping("/api/users/{id}")
     public Map<String, Object> update(@PathVariable UUID id, @RequestBody UpdateUserRequest body, HttpServletRequest request) {
-        return userService.update(id, body.fullName(), body.role(), body.active(), request);
+        return userService.update(id, body.fullName(), body.role(), body.active(), body.clinicCode(), request);
     }
 
     @PostMapping("/api/users/{id}/reset-password")

@@ -33,6 +33,8 @@ public class PermissionResolver {
         APPOINTMENTS(Permission.APPOINTMENTS_READ, Permission.APPOINTMENTS_WRITE),
         CLINICAL(Permission.CLINICAL_READ, Permission.CLINICAL_WRITE),
         BILLING(Permission.BILLING_READ, Permission.BILLING_WRITE),
+        /** A clinic's own Open Dental connection: Admins (any clinic) and Dentists (their own). */
+        CONNECTION(Permission.CLINIC_CONNECT, Permission.CLINIC_CONNECT),
         SYNC(Permission.SYNC_MANAGE, Permission.SYNC_MANAGE);
 
         public final Permission read;
@@ -63,8 +65,10 @@ public class PermissionResolver {
                 "claimtrackings", "covcats", "covspans", "deposits", "discountplans", "discountplansubs", "eobattaches",
                 "fees", "feescheds", "insplans", "inssubs", "insverifies", "payments", "payplancharges", "payplanlinks",
                 "payplans", "paysplits", "statements", "substitutionlinks", "patplans", "etranss", "adjustments", "accountmodules");
+        // The clinic's webhook subscriptions (Subscription page): Admins and Dentists, for the current clinic
+        put(Area.CONNECTION, "subscriptions");
         // Staff records and Open Dental's own users and security groups: admins only
-        put(Area.SYNC, "subscriptions", "employees", "userods", "usergroups", "usergroupattaches");
+        put(Area.SYNC, "employees", "userods", "usergroups", "usergroupattaches");
     }
 
     private static void put(Area area, String... resources) {
@@ -92,7 +96,7 @@ public class PermissionResolver {
 
         switch (first) {
             case "auth":
-                return Set.of("login", "logout").contains(second) ? Requirement.PUBLIC : Requirement.AUTHENTICATED;
+                return Set.of("login", "logout", "signup").contains(second) ? Requirement.PUBLIC : Requirement.AUTHENTICATED;
             case "webhooks":
                 // Called by Open Dental's servers, which cannot sign in.
                 return Requirement.PUBLIC;
@@ -104,8 +108,17 @@ public class PermissionResolver {
             case "assistant":
                 return Requirement.of(Permission.ASSISTANT_USE);
             case "sync":
-                return read && "force".equals(second) && parts.length > 2 && "status".equals(parts[2])
-                        ? Requirement.AUTHENTICATED : Requirement.of(Permission.SYNC_MANAGE);
+                // The current clinic's sync (Sync settings, Open Dental page): Admins and Dentists.
+                // Everything platform-wide (pause / resume, the push queue, developer sync endpoints): Admins.
+                if ("connection".equals(second) || "clinics".equals(second)) return Requirement.of(Permission.CLINIC_CONNECT);
+                if ("force".equals(second)) {
+                    return read && parts.length > 2 && "status".equals(parts[2])
+                            ? Requirement.AUTHENTICATED : Requirement.of(Permission.CLINIC_CONNECT);
+                }
+                if ("control".equals(second)) {
+                    return Requirement.of(read ? Permission.CLINIC_CONNECT : Permission.SYNC_MANAGE);
+                }
+                return Requirement.of(Permission.SYNC_MANAGE);
             case "queries":
                 return Requirement.of(Permission.SYSTEM_ADMIN);
             case "database":

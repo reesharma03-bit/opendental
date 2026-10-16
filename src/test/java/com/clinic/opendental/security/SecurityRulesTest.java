@@ -51,8 +51,9 @@ class SecurityRulesTest {
     void adminAreasAndUnknownRoutesNeedAdmin() {
         assertThat(need("GET", "/api/users").permission()).isEqualTo(Permission.USERS_MANAGE);
         assertThat(need("GET", "/api/audit").permission()).isEqualTo(Permission.USERS_MANAGE);
-        assertThat(need("POST", "/api/sync/force").permission()).isEqualTo(Permission.SYNC_MANAGE);
-        assertThat(need("GET", "/api/database/subscriptions").permission()).isEqualTo(Permission.SYNC_MANAGE);
+        assertThat(need("POST", "/api/sync/control/pause").permission()).isEqualTo(Permission.SYNC_MANAGE);
+        assertThat(need("GET", "/api/sync/queue").permission()).isEqualTo(Permission.SYNC_MANAGE);
+        assertThat(need("GET", "/api/database/userods").permission()).isEqualTo(Permission.SYNC_MANAGE);
         assertThat(need("POST", "/api/queries").permission()).isEqualTo(Permission.SYSTEM_ADMIN);
         assertThat(need("GET", "/api/something-new").permission()).isEqualTo(Permission.SYSTEM_ADMIN);
         assertThat(need("GET", "/swagger-ui/index.html").permission()).isEqualTo(Permission.SYSTEM_ADMIN);
@@ -61,6 +62,8 @@ class SecurityRulesTest {
     @Test
     void onlySignInAndOpenDentalWebhooksArePublic() {
         assertThat(need("POST", "/api/auth/login").kind()).isEqualTo(Requirement.Kind.PUBLIC);
+        assertThat(need("POST", "/api/auth/signup").kind()).isEqualTo(Requirement.Kind.PUBLIC); // dentist sign-up
+        assertThat(need("GET", "/api/sync/connection/dentist").permission()).isEqualTo(Permission.CLINIC_CONNECT);
         assertThat(need("POST", "/api/webhooks/opendental/patient").kind()).isEqualTo(Requirement.Kind.PUBLIC);
         assertThat(need("GET", "/api/auth/me").kind()).isEqualTo(Requirement.Kind.AUTHENTICATED);
         assertThat(need("GET", "/api/dashboard/summary").kind()).isEqualTo(Requirement.Kind.AUTHENTICATED);
@@ -77,6 +80,25 @@ class SecurityRulesTest {
         assertThat(Role.BILLING.permissions()).contains(Permission.BILLING_WRITE, Permission.PATIENTS_READ)
                 .doesNotContain(Permission.PATIENTS_WRITE, Permission.CLINICAL_READ);
         assertThat(Role.READ_ONLY.permissions()).noneMatch(p -> p.name().endsWith("_WRITE") || p.name().endsWith("_MANAGE"));
+    }
+
+    @Test
+    void onlyAdminsAndDentistsManageAClinicsConnectionAndSync() {
+        // A Dentist registers and manages their own clinic; an Admin any clinic (CurrentClinic keeps them apart).
+        assertThat(need("POST", "/api/sync/connection").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("GET", "/api/sync/connection/clinics").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("DELETE", "/api/sync/connection").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        // ...and their clinic's sync and webhook subscriptions (Sync settings and Subscription pages)
+        assertThat(need("POST", "/api/sync/force").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("GET", "/api/sync/clinics").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("GET", "/api/sync/control").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("GET", "/api/database/subscriptions").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(need("POST", "/api/database/subscriptions").permission()).isEqualTo(Permission.CLINIC_CONNECT);
+        assertThat(Role.DENTIST.permissions()).contains(Permission.CLINIC_CONNECT)
+                .doesNotContain(Permission.USERS_MANAGE, Permission.SYNC_MANAGE, Permission.SYSTEM_ADMIN);
+        for (Role role : new Role[]{Role.FRONT_DESK, Role.BILLING, Role.READ_ONLY}) {
+            assertThat(role.permissions()).as(role.name()).doesNotContain(Permission.CLINIC_CONNECT);
+        }
     }
 
     @Test

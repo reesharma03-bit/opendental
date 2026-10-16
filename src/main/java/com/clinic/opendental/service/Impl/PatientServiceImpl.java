@@ -1,5 +1,6 @@
 package com.clinic.opendental.service.Impl;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.patient.CreatePatientRequest;
 import com.clinic.opendental.dto.patient.PatientResponse;
@@ -56,7 +57,7 @@ public class PatientServiceImpl implements PatientService {
         } catch (Exception e) {
             log.warn("OpenDental API unavailable, falling back to database: {}", e.getMessage());
             // Fallback to database
-            return patientRepository.findAll().stream()
+            return patientRepository.findByIdClinicId(resolveClinicId()).stream()
                     .map(this::toPatientResponse)
                     .filter(p -> matchesSearchParams(p, params))
                     .collect(Collectors.toList());
@@ -78,7 +79,7 @@ public class PatientServiceImpl implements PatientService {
     public List<PatientDirectoryResponse> getPatientDirectoryFromDatabase(Map<String, String> params) {
         String search = param(params, "Search");
         String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        return patientRepository.findAll().stream()
+        return patientRepository.findByIdClinicId(resolveClinicId()).stream()
                 .filter(patient -> matchesSearchParams(toPatientResponse(patient), params))
                 .filter(patient -> needle.isEmpty()
                         || Stream.of(
@@ -121,7 +122,7 @@ public class PatientServiceImpl implements PatientService {
             return apiPatients;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for simple patients, falling back to database: {}", e.getMessage());
-            return patientRepository.findAll().stream()
+            return patientRepository.findByIdClinicId(resolveClinicId()).stream()
                     .map(this::toSimplePatientResponse)
                     .filter(p -> matchesSearchParams(p, params))
                     .collect(Collectors.toList());
@@ -138,7 +139,7 @@ public class PatientServiceImpl implements PatientService {
             return apiPatient;
         } catch (Exception e) {
             log.warn("OpenDental API unavailable for patient {}, falling back to database: {}", patNum, e.getMessage());
-            Patient patient = patientRepository.findAll().stream()
+            Patient patient = patientRepository.findByIdClinicId(resolveClinicId()).stream()
                     .filter(p -> p.getId().getPatNum().equals(patNum))
                     .findFirst()
                     .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
@@ -254,14 +255,9 @@ public class PatientServiceImpl implements PatientService {
         }
     }
 
+    /** The clinic of the current request (the signed-in user's, or the one an Admin chose). */
     private UUID resolveClinicId() {
-        // Use the first active clinic as default; can be enhanced to route by clinic code
-        List<Clinic> clinics = clinicRepository.findByIsActiveTrue();
-        if (clinics.isEmpty()) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No active clinic configured. Please register a clinic in the clinics table.");
-        }
-        return clinics.get(0).getId();
+        return CurrentClinic.requireConnectedId(clinicRepository);
     }
 
     private Patient toPatientEntity(PatientResponse dto) {

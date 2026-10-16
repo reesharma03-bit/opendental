@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, CirclePause, CirclePlay, LoaderCircle, RefreshCw, Save } from 'lucide-react';
+import { useAuth } from './auth/AuthContext';
 import {
   getSyncControl, getSyncSelections, getSyncStatus, groupSyncable, pauseSync, resumeSync, saveSyncSelection,
   startForceSync, syncLabel, type ClinicSyncSelection, type SyncControlState, type SyncSelections, type SyncStatus,
@@ -68,6 +69,8 @@ function PauseCard({ control, onChange, onError }: {
   onError: (message: string) => void;
 }) {
   const [reason, setReason] = useState('');
+  const { can } = useAuth();
+  const canPause = can('SYNC_MANAGE');
   const [busy, setBusy] = useState(false);
 
   const act = async (pause: boolean) => {
@@ -113,7 +116,12 @@ function PauseCard({ control, onChange, onError }: {
           </ul>
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+      {!canPause && (
+        <p className="mt-4 border-t border-slate-100 pt-4 text-[11px] text-slate-500">
+          Pausing applies to every clinic on SmileOS, so only a SmileOS admin can pause or resume it.
+        </p>
+      )}
+      {canPause && <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
         {!control.paused && (
           <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="Reason (optional), e.g. Open Dental upgrade tonight"
             aria-label="Reason for pausing" className={`${inputCls} max-w-[420px] flex-1`} data-testid="input-pause-reason" />
@@ -123,13 +131,14 @@ function PauseCard({ control, onChange, onError }: {
           {busy ? <LoaderCircle size={15} className="animate-spin" /> : control.paused ? <CirclePlay size={15} /> : <CirclePause size={15} />}
           {control.paused ? 'Resume sync' : 'Pause sync'}
         </button>
-      </div>
+      </div>}
     </section>
   );
 }
 
 function syncSummary(status: SyncStatus | null): string {
   if (!status || status.state === 'idle') return 'No Force Sync since the backend started.';
+  if (status.state === 'queued') return 'Waiting: another clinic is syncing; this clinic follows right after.';
   if (status.state === 'running') return status.currentStep ? `Syncing · ${status.currentStep}` : 'Syncing…';
   if (status.state === 'failed') return `Failed: ${status.error ?? 'unknown error'}`;
   if (status.state === 'paused') return `Stopped part-way: ${status.error ?? 'sync paused'}. What it finished is kept.`;
@@ -144,7 +153,9 @@ function ForceSyncCard({ paused }: { paused: boolean }) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
-  const running = status?.state === 'running';
+  const { can } = useAuth();
+  const admin = can('SYNC_MANAGE');
+  const running = status?.state === 'running' || status?.state === 'queued';
 
   // Picks up a sync that is already running (nightly run, another tab), and re-reads it
   // when sync is paused or resumed (a running sync stops when paused).
@@ -160,10 +171,10 @@ function ForceSyncCard({ paused }: { paused: boolean }) {
     return () => window.clearInterval(timer);
   }, [running]);
 
-  const start = async () => {
+  const start = async (all = false) => {
     setError(''); setStarting(true);
     try {
-      setStatus(await startForceSync());
+      setStatus(await startForceSync(all));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -184,25 +195,33 @@ function ForceSyncCard({ paused }: { paused: boolean }) {
         <div className="min-w-0 flex-1">
           <h2 id="force-sync-title" className="text-[14px] font-bold text-slate-900">Force Sync</h2>
           <p className="mt-1 text-[12px] text-slate-600">
-            Copies everything each clinic syncs from Open Dental now, including the data Open Dental lists per patient,
+            Copies everything this clinic syncs from Open Dental now, including the data Open Dental lists per patient,
             and notices records deleted there. The same runs every night at 2 AM. On a large practice it can take a long time.
           </p>
         </div>
-        <button type="button" onClick={() => void start()} disabled={paused || running || starting} data-testid="button-force-refresh"
-          aria-busy={running} title={paused ? 'Resume sync first' : undefined} className={btnPrimary}>
-          {running || starting ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-          {running ? 'Syncing…' : 'Force Sync'}
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          <button type="button" onClick={() => void start()} disabled={paused || running || starting} data-testid="button-force-refresh"
+            aria-busy={running} title={paused ? 'Resume sync first' : undefined} className={btnPrimary}>
+            {running || starting ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            {status?.state === 'queued' ? 'Waiting…' : running ? 'Syncing…' : 'Force Sync this clinic'}
+          </button>
+          {admin && (
+            <button type="button" onClick={() => void start(true)} disabled={paused || running || starting} data-testid="button-force-sync-all"
+              className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+              or sync every clinic
+            </button>
+          )}
+        </div>
       </div>
 
-      {running && (
+      {running && status?.total ? (
         <div className="mt-4" aria-hidden="true">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-[width] duration-500" style={{ width: `${percent}%` }} />
           </div>
           <p className="mt-1.5 text-[10px] text-slate-400">{status?.done ?? 0} of {status?.total ?? 0} done · {percent}%</p>
         </div>
-      )}
+      ) : null}
 
       <p data-testid="text-force-sync-status" aria-live="polite"
         className={`mt-3 text-[11px] ${error || status?.state === 'failed' ? 'text-rose-600' : status?.state === 'paused' || failed.length ? 'text-amber-600' : 'text-slate-500'}`}>
@@ -276,7 +295,7 @@ function SelectionCard({ selections, onSaved, onError }: {
     <section className={`${card} mt-5`} aria-labelledby="sync-screens-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="sync-screens-title" className="text-[14px] font-bold text-slate-900">What each clinic syncs</h2>
+          <h2 id="sync-screens-title" className="text-[14px] font-bold text-slate-900">What this clinic syncs</h2>
           <p className="mt-1 max-w-[640px] text-[12px] text-slate-500">
             Syncing fewer screens leaves more of Open Dental's request allowance (about one call a second) for the ones you use.
             Screens you leave out keep the data they already have, and catch up from where they stopped when you add them back.

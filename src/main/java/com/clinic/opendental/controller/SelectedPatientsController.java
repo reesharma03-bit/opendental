@@ -1,5 +1,6 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.service.SelectedPatients;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +25,7 @@ public class SelectedPatientsController {
 
     @GetMapping
     public List<Map<String, Object>> selected() {
-        return clinicRepository.findByIsActiveTrue().stream().findFirst()
+        return CurrentClinic.find(clinicRepository).filter(c -> Boolean.TRUE.equals(c.getIsActive()))
                 .map(clinic -> selectedPatients.recent(clinic.getId()).stream()
                         .map(s -> Map.<String, Object>of(
                                 "workstation", s.workstation(), "pat_num", s.patNum(), "name", s.name(), "at", s.at().toString()))

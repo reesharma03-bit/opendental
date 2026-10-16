@@ -5,6 +5,8 @@ import {
   createUser, listAudit, listRoles, listUsers, resetUserPassword, updateUser,
   type AppUser, type AuditEntry, type RoleInfo, type RoleName,
 } from './lib/backendAuth';
+import { chosenClinic } from './lib/backend';
+import { listClinics, type ConnectedClinic } from './lib/backendConnection';
 
 const inputCls = 'mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70';
 const btnPrimary = 'flex h-10 items-center justify-center gap-2 rounded-xl bg-[#315fe7] px-4 text-[12px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.18)] transition hover:bg-[#244fcf] disabled:opacity-50';
@@ -38,12 +40,15 @@ export default function UsersScreen() {
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ email: string; password: string } | null>(null);
+  const [clinics, setClinics] = useState<ConnectedClinic[]>([]);
+  // The clinic someone gets when they stop being an Admin: the one being worked on now.
+  const workingClinic = chosenClinic() || clinics.find((c) => c.connected)?.clinicCode || '';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [u, r, a] = await Promise.all([listUsers(), listRoles(), listAudit(200)]);
-      setUsers(u); setRoles(r); setAudit(a); setError('');
+      const [u, r, a, c] = await Promise.all([listUsers(), listRoles(), listAudit(200), listClinics().catch(() => [])]);
+      setUsers(u); setRoles(r); setAudit(a); setClinics(c); setError('');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -52,7 +57,7 @@ export default function UsersScreen() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const change = async (target: AppUser, body: { role?: RoleName; active?: boolean }, message: string) => {
+  const change = async (target: AppUser, body: { role?: RoleName; active?: boolean; clinicCode?: string }, message: string) => {
     setBusyId(target.id); setError('');
     try {
       await updateUser(target.id, body);
@@ -117,15 +122,32 @@ export default function UsersScreen() {
           <section className="overflow-hidden rounded-2xl border border-slate-200/75 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] border-collapse text-left">
-                <thead><tr className="border-b border-slate-100 bg-slate-50/65 text-[9px] font-bold uppercase tracking-[.8px] text-slate-400"><th className="px-5 py-3">User</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Last sign-in</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+                <thead><tr className="border-b border-slate-100 bg-slate-50/65 text-[9px] font-bold uppercase tracking-[.8px] text-slate-400"><th className="px-5 py-3">User</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Clinic</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Last sign-in</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-slate-100/80 last:border-0" data-testid={`row-user-${u.email}`}>
                       <td className="px-5 py-3"><p className="text-[11.5px] font-bold text-slate-700">{u.fullName}{u.id === me?.id && <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">You</span>}</p><p className="text-[10px] text-slate-400">{u.email}</p></td>
                       <td className="px-3 py-3">
-                        <select aria-label={`Role for ${u.email}`} value={u.role} disabled={busyId === u.id} onChange={(e) => void change(u, { role: e.target.value as RoleName }, `${u.fullName} is now ${roles.find((r) => r.role === e.target.value)?.label ?? e.target.value}.`)} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700">
+                        <select aria-label={`Role for ${u.email}`} value={u.role} disabled={busyId === u.id} onChange={(e) => void change(u, {
+                          role: e.target.value as RoleName,
+                          ...(e.target.value !== 'ADMIN' && !u.clinicCode && e.target.value !== 'DENTIST' && workingClinic ? { clinicCode: workingClinic } : {}),
+                        }, `${u.fullName} is now ${roles.find((r) => r.role === e.target.value)?.label ?? e.target.value}.`)} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700">
                           {roles.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
                         </select>
+                      </td>
+                      <td className="px-3 py-3 text-[10.5px]">
+                        {u.role === 'ADMIN'
+                          ? <span className="text-slate-500" title="Admins work on every clinic">All clinics</span>
+                          : u.role === 'DENTIST'
+                            ? <span className="text-slate-600" title="Clinics this dentist owns">{u.ownedClinics?.length ? u.ownedClinics.join(', ') : 'No clinics yet'}</span>
+                            : (
+                            <select aria-label={`Clinic for ${u.email}`} value={u.clinicCode ?? ''} disabled={busyId === u.id}
+                              onChange={(e) => void change(u, { clinicCode: e.target.value }, `${u.fullName} now works at ${clinics.find((c) => c.clinicCode === e.target.value)?.clinicName ?? 'no clinic'}.`)}
+                              className="h-8 max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700">
+                              {!u.clinicCode && <option value="">Choose…</option>}
+                              {clinics.map((c) => <option key={c.clinicCode} value={c.clinicCode}>{c.clinicName}</option>)}
+                            </select>
+                          )}
                       </td>
                       <td className="px-3 py-3 text-[10.5px]">
                         {!u.active ? <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-500">Deactivated</span>
@@ -144,7 +166,7 @@ export default function UsersScreen() {
                       </td>
                     </tr>
                   ))}
-                  {!loading && users.length === 0 && <tr><td colSpan={5} className="px-6 py-10 text-center text-[11px] text-slate-400">No users.</td></tr>}
+                  {!loading && users.length === 0 && <tr><td colSpan={6} className="px-6 py-10 text-center text-[11px] text-slate-400">No users.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -181,15 +203,19 @@ export default function UsersScreen() {
         </section>
       )}
 
-      {adding && <AddUserDialog roles={roles} onClose={() => setAdding(false)} onCreated={async (email, password) => { setAdding(false); setIssued({ email, password }); await load(); }} />}
+      {adding && <AddUserDialog roles={roles} clinics={clinics} defaultClinic={workingClinic} onClose={() => setAdding(false)} onCreated={async (email, password) => { setAdding(false); setIssued({ email, password }); await load(); }} />}
     </div>
   );
 }
 
-function AddUserDialog({ roles, onClose, onCreated }: { roles: RoleInfo[]; onClose: () => void; onCreated: (email: string, password: string) => Promise<void> }) {
+function AddUserDialog({ roles, clinics, defaultClinic, onClose, onCreated }: {
+  roles: RoleInfo[]; clinics: ConnectedClinic[]; defaultClinic: string;
+  onClose: () => void; onCreated: (email: string, password: string) => Promise<void>;
+}) {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<RoleName>('FRONT_DESK');
+  const [clinicCode, setClinicCode] = useState(defaultClinic);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -198,7 +224,7 @@ function AddUserDialog({ roles, onClose, onCreated }: { roles: RoleInfo[]; onClo
     setBusy(true); setError('');
     const password = temporaryPassword();
     try {
-      await createUser({ email: email.trim(), fullName: fullName.trim(), role, password });
+      await createUser({ email: email.trim(), fullName: fullName.trim(), role, password, clinicCode: role === 'ADMIN' || role === 'DENTIST' ? '' : clinicCode });
       await onCreated(email.trim(), password);
     } catch (e) {
       setError((e as Error).message);
@@ -221,6 +247,19 @@ function AddUserDialog({ roles, onClose, onCreated }: { roles: RoleInfo[]; onClo
               {roles.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
             </select>
           </label>
+          {role === 'ADMIN'
+            ? <p className="text-[10.5px] text-slate-500">Admins are SmileOS administrators: they see and manage every clinic.</p>
+            : role === 'DENTIST'
+              ? <p className="text-[10.5px] text-slate-500">Dentists own clinics: they register their own, or an Admin registers one for them on the Open Dental page.</p>
+              : (
+              <label className="block text-[11px] font-bold text-slate-700">Clinic
+                <select value={clinicCode} onChange={(e) => setClinicCode(e.target.value)} required className={inputCls} data-testid="select-new-user-clinic">
+                  <option value="">Choose a clinic…</option>
+                  {clinics.map((c) => <option key={c.clinicCode} value={c.clinicCode}>{c.clinicName}</option>)}
+                </select>
+                <span className="mt-1 block text-[10px] font-normal text-slate-400">They only ever see this clinic's data.</span>
+              </label>
+            )}
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="h-10 rounded-xl border border-slate-200 px-4 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
             <button type="submit" disabled={busy} className={btnPrimary} data-testid="button-create-user">{busy && <LoaderCircle size={14} className="animate-spin" />}Create user</button>

@@ -3,7 +3,7 @@ import {
   Activity, CalendarCheck2, Check, CircleAlert, Eye, EyeOff, KeyRound, LoaderCircle, Lock, LogIn,
   RefreshCw, ShieldCheck, Sparkles, UsersRound,
 } from 'lucide-react';
-import { changePassword, signIn } from '../lib/backendAuth';
+import { changePassword, signIn, signUpDentist } from '../lib/backendAuth';
 import { useAuth } from './AuthContext';
 
 const inputCls = 'mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 text-[13.5px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100';
@@ -124,6 +124,13 @@ function PasswordField({ label, value, onChange, autoComplete, testId, hint, aut
 }
 
 export function SignInScreen() {
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  return mode === 'sign-up'
+    ? <DentistSignUpScreen onSignIn={() => setMode('sign-in')} />
+    : <SignInForm onSignUp={() => setMode('sign-up')} />;
+}
+
+function SignInForm({ onSignUp }: { onSignUp: () => void }) {
   const { setSignedIn, notice } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -151,6 +158,9 @@ export function SignInScreen() {
       subtitle="Use the work email and password your practice administrator set up for you."
       footer={(
         <div className="mt-8 space-y-3 border-t border-slate-200 pt-6 text-[11.5px] leading-5 text-slate-500">
+          <p><b className="text-slate-700">New dentist?</b>{' '}
+            <button type="button" onClick={onSignUp} className="font-bold text-blue-700 hover:underline" data-testid="link-sign-up">Create a dentist account</button>
+            {' '}and register your clinic.</p>
           <p><b className="text-slate-700">Forgot your password?</b> Ask your practice administrator to reset it. You’ll get a temporary password to replace when you sign in.</p>
           <p><b className="text-slate-700">Shared computer?</b> Always sign out when you’re done. SmileOS also signs you out after a period of inactivity.</p>
         </div>
@@ -166,6 +176,74 @@ export function SignInScreen() {
         <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" testId="input-sign-in-password" />
         <button type="submit" disabled={busy} className={buttonCls} data-testid="button-sign-in">
           {busy ? <LoaderCircle size={17} className="animate-spin" /> : <LogIn size={17} />}{busy ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+    </Shell>
+  );
+}
+
+/**
+ * A dentist creates their own account (name, email, password); they get the Dentist role and,
+ * once signed in, register their clinics on the Open Dental page.
+ */
+function DentistSignUpScreen({ onSignIn }: { onSignIn: () => void }) {
+  const { setSignedIn } = useAuth();
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const rulesMet = RULES.every((rule) => rule.test(password));
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!rulesMet) { setError('Choose a password that meets every rule below.'); return; }
+    if (password !== confirm) { setError('The two passwords don’t match.'); return; }
+    setBusy(true);
+    setError('');
+    try {
+      setSignedIn(await signUpDentist(fullName.trim(), email.trim(), password));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Shell
+      eyebrow="For dentists"
+      title="Create your dentist account"
+      subtitle="Then register your clinic and connect it to Open Dental with its Customer Key."
+      footer={(
+        <div className="mt-8 border-t border-slate-200 pt-6 text-[11.5px] leading-5 text-slate-500">
+          <p><b className="text-slate-700">Already have an account?</b>{' '}
+            <button type="button" onClick={onSignIn} className="font-bold text-blue-700 hover:underline" data-testid="link-sign-in">Sign in</button></p>
+        </div>
+      )}
+    >
+      {error && <ErrorNote text={error} />}
+      <form onSubmit={submit} className="mt-7 space-y-5" data-testid="form-sign-up">
+        <label className="block text-[12px] font-bold text-slate-700">Your name
+          <input autoComplete="name" required autoFocus maxLength={120} value={fullName} onChange={(e) => setFullName(e.target.value)}
+            placeholder="Dr. Priya Mehta" className={inputCls} data-testid="input-sign-up-name" />
+        </label>
+        <label className="block text-[12px] font-bold text-slate-700">Work email
+          <input type="email" autoComplete="username" required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@yourpractice.com" className={inputCls} data-testid="input-sign-up-email" />
+        </label>
+        <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="new-password" testId="input-sign-up-password" />
+        <ul className="-mt-2 space-y-1 text-[11px]">
+          {RULES.map((rule) => (
+            <li key={rule.label} className={`flex items-center gap-1.5 ${rule.test(password) ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <Check size={12} /> {rule.label}
+            </li>
+          ))}
+        </ul>
+        <PasswordField label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" testId="input-sign-up-confirm" />
+        <button type="submit" disabled={busy} className={buttonCls} data-testid="button-sign-up">
+          {busy ? <LoaderCircle size={17} className="animate-spin" /> : <KeyRound size={17} />}{busy ? 'Creating your account…' : 'Create account'}
         </button>
       </form>
     </Shell>

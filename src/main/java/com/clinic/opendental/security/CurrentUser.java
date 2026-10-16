@@ -24,6 +24,13 @@ public final class CurrentUser {
         return token == null ? null : token.getToken().getClaimAsString("email");
     }
 
+    /** The user's own clinic (from the session); null for Admins and users not linked to one. */
+    public static UUID clinicId() {
+        JwtAuthenticationToken token = token();
+        String clinic = token == null ? null : token.getToken().getClaimAsString("clinic");
+        return clinic == null || clinic.isBlank() ? null : UUID.fromString(clinic);
+    }
+
     public static Role role() {
         JwtAuthenticationToken token = token();
         return token == null ? null : Role.parse(token.getToken().getClaimAsString("role"));

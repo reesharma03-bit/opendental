@@ -26,6 +26,9 @@ import AssistantPanel from './AssistantPanel';
 import UsersScreen from './UsersScreen';
 import SyncSettingsScreen from './SyncSettingsScreen';
 import OpenDentalScreen from './OpenDentalScreen';
+import ClinicBar, { ClinicName, DisconnectedBanner } from './components/ClinicSwitcher';
+import { CLINICS_CHANGED_EVENT, CLINIC_EVENT } from './lib/backend';
+import type { SignedInUser } from './lib/backendAuth';
 import { useAuth } from './auth/AuthContext';
 import { ChangePasswordForm } from './auth/SignInScreens';
 import { getCapabilities } from './lib/databaseResources';
@@ -42,11 +45,21 @@ const navItems: { label: string; icon: typeof Users; badge?: string; permission?
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
   { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
-  { label: 'Open Dental', icon: PlugZap, permission: 'SYNC_MANAGE' },
-  { label: 'Subscription', icon: BellRing, permission: 'SYNC_MANAGE' },
-  { label: 'Sync settings', icon: Settings, permission: 'SYNC_MANAGE' },
+  { label: 'Open Dental', icon: PlugZap, permission: 'CLINIC_CONNECT' },
+  { label: 'Subscription', icon: BellRing, permission: 'CLINIC_CONNECT' },
+  { label: 'Sync settings', icon: Settings, permission: 'CLINIC_CONNECT' },
   { label: 'Users', icon: UserCog, permission: 'USERS_MANAGE' },
 ];
+
+/**
+ * Not working in a connected clinic: a Dentist who hasn't registered theirs, another non-Admin
+ * user an Admin hasn't linked to one, or anyone whose clinic was disconnected (its data is hidden
+ * until it is connected again). Admins choose their clinic in the clinic bar.
+ */
+const withoutClinic = (user: SignedInUser | null) => Boolean(user && (
+  // A dentist without a clinic yet registers one; one whose clinic is disconnected switches or reconnects.
+  user.role === 'DENTIST' ? !user.clinicCode
+    : user.role !== 'ADMIN' && (!user.clinicCode || !user.clinicConnected)));
 
 const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?';
 
@@ -81,6 +94,7 @@ function Sidebar({
       : [...groups, label]);
   };
   const { user, can } = useAuth();
+  const noClinic = withoutClinic(user);
   const visibleResources = useVisibleResources();
   const canOpen = (resource: string) => resource === 'ChartModules'
     ? can('CLINICAL_READ')
@@ -111,7 +125,7 @@ function Sidebar({
         <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-3 ${collapsed ? 'md:px-3' : ''}`}>
           <p className={`mb-3 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400 ${collapsed ? 'md:hidden' : ''}`}>Workspace</p>
           <nav className="space-y-1" aria-label="Main navigation">
-            {navItems.filter((item) => !item.permission || can(item.permission)).map(({ label, icon: Icon, badge }) => (
+            {navItems.filter((item) => (!item.permission || can(item.permission)) && (!noClinic || item.label === 'Open Dental')).map(({ label, icon: Icon, badge }) => (
               <button key={label} onClick={() => { setActiveNav(label); onClose(); }} data-testid={`nav-${label.toLowerCase().replaceAll(' ', '-')}`} aria-current={activeNav === label ? 'page' : undefined} title={collapsed ? label : undefined}
                 className={`group flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left text-[13px] font-semibold transition ${activeNav === label ? 'bg-blue-50 text-blue-700 shadow-[inset_2px_0_0_#315fe7]' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
                 <Icon size={18} strokeWidth={activeNav === label ? 2.25 : 1.8} className="shrink-0" />
@@ -120,7 +134,7 @@ function Sidebar({
               </button>
             ))}
           </nav>
-          <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed ? 'md:hidden' : ''}`}>
+          <div className={`mt-5 border-t border-slate-100 pt-4 ${collapsed || noClinic ? 'md:hidden' : ''} ${noClinic ? 'hidden' : ''}`}>
             <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[1.5px] text-slate-400">Open Dental API</p>
             <nav aria-label="Open Dental API resources" className="space-y-1">
               {apiNavigationGroups.map(({ label, resources: allResources }) => {
@@ -201,6 +215,25 @@ function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const { user, can, signOut } = useAuth();
+  const noClinic = withoutClinic(user);
+  const [registerRequest, setRegisterRequest] = useState(0);
+  // Switching clinic (clinic bar, Open / Edit in the clinic list, a new registration), or a clinic
+  // being connected, edited or disconnected, remounts the screens below the top bar, so each loads
+  // its data again (the Appointments screen stays loaded in the background and would otherwise keep
+  // what it showed before, e.g. "not connected"). The Open Dental page isn't remounted; no page refresh.
+  const [clinicVersion, setClinicVersion] = useState(0);
+  useEffect(() => {
+    const onClinic = () => setClinicVersion((v) => v + 1);
+    window.addEventListener(CLINIC_EVENT, onClinic);
+    window.addEventListener(CLINICS_CHANGED_EVENT, onClinic);
+    return () => {
+      window.removeEventListener(CLINIC_EVENT, onClinic);
+      window.removeEventListener(CLINICS_CHANGED_EVENT, onClinic);
+    };
+  }, []);
+  useEffect(() => {
+    if (noClinic) setActiveNav('Open Dental');
+  }, [noClinic]);
   useEffect(() => {
     const restoreResource = () => {
       const value = new URLSearchParams(window.location.search).get('resource');
@@ -240,12 +273,13 @@ function App() {
             <kbd className="absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] text-slate-400 sm:inline">⌘ K</kbd>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-            {can('PATIENTS_READ') && <OpenDentalSelection onOpen={(patient) => { setSearch(patient.name || String(patient.patNum)); setActiveNav('Patients'); }} />}
+            <ClinicName />
+            {!noClinic && can('PATIENTS_READ') && <OpenDentalSelection onOpen={(patient) => { setSearch(patient.name || String(patient.patNum)); setActiveNav('Patients'); }} />}
             <div className="relative">
               <button onClick={() => setNoticeOpen((value) => !value)} data-testid="button-notifications" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-800"><Bell size={18} strokeWidth={1.8} /><span className="absolute right-[8px] top-[7px] h-2 w-2 rounded-full border-2 border-[#f8f9fc] bg-rose-500" /></button>
               {noticeOpen && <div className="absolute right-0 top-12 z-50 w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl" data-testid="panel-notifications"><div className="flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Notifications</p><button onClick={() => { setNoticeOpen(false); announce('All caught up.'); }} className="text-[10px] font-semibold text-blue-600" data-testid="button-mark-read">Mark all read</button></div><div className="mt-4 space-y-3"><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />Nisha Patel confirmed her 9:45 appointment.</p><p className="flex gap-2 text-[11px] leading-5 text-slate-600"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />3 invoices are due for follow-up today.</p></div></div>}
             </div>
-            {can('ASSISTANT_USE') && <button onClick={() => setAiOpen(true)} aria-haspopup="dialog" aria-expanded={aiOpen} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>}
+            {!noClinic && can('ASSISTANT_USE') && <button onClick={() => setAiOpen(true)} aria-haspopup="dialog" aria-expanded={aiOpen} data-testid="button-ai-assistant" className="hidden h-[37px] items-center gap-2 rounded-xl bg-[#315fe7] px-3.5 text-[11px] font-bold text-white shadow-[0_4px_12px_rgba(49,95,231,.2)] transition hover:bg-[#244fcf] sm:flex"><Sparkles size={15} /> AI Assistant</button>}
             <div className="relative">
               <button onClick={() => setProfileOpen((open) => !open)} data-testid="button-user-profile" aria-label="Open profile menu" aria-haspopup="menu" aria-expanded={profileOpen} className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-1.5 transition hover:bg-white">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e4edf9] text-[10px] font-bold text-[#395781]">{initialsOf(user?.fullName ?? '')}</span><span className="hidden text-left sm:block"><span className="block text-[11px] font-bold leading-4 text-slate-700">{user?.fullName}</span><span className="block text-[9px] text-slate-400">{user?.roleLabel}</span></span><ChevronDown size={13} className="hidden text-slate-400 sm:block" />
@@ -260,8 +294,27 @@ function App() {
             </div>
           </div>
         </header>
+        <ClinicBar onRegister={() => { setActiveNav('Open Dental'); setRegisterRequest((n) => n + 1); }} />
+        <DisconnectedBanner onReconnect={() => setActiveNav('Open Dental')} />
+        {activeNav === 'Open Dental' && can('CLINIC_CONNECT') && <OpenDentalScreen key={registerRequest} startRegister={registerRequest > 0} />}
+        <div key={`screens-${clinicVersion}`}>
 
-        {activeNav === 'Dashboard' && (
+        {noClinic && !can('CLINIC_CONNECT') && (
+          <div className="mx-auto max-w-[620px] px-4 py-16 text-center" data-testid="screen-no-clinic">
+            {user?.clinicCode ? (
+              <>
+                <h1 className="font-[Manrope] text-[20px] font-extrabold text-slate-900">{user.clinicName} isn't connected</h1>
+                <p className="mt-2 text-[12px] text-slate-500">Its data is hidden until it is connected to Open Dental again. Ask your dentist or SmileOS admin to connect it.</p>
+              </>
+            ) : (
+              <>
+                <h1 className="font-[Manrope] text-[20px] font-extrabold text-slate-900">Not linked to a clinic yet</h1>
+                <p className="mt-2 text-[12px] text-slate-500">Your account isn't linked to a clinic. Ask your SmileOS admin to add you to your clinic, then sign in again.</p>
+              </>
+            )}
+          </div>
+        )}
+        {!noClinic && activeNav === 'Dashboard' && (
           <HomeDashboard
             search={search}
             announce={announce}
@@ -271,11 +324,10 @@ function App() {
           />
         )}
         {activeNav === 'Patients' && can('PATIENTS_READ') && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
-        {activeNav === 'Subscription' && can('SYNC_MANAGE') && <SubscriptionScreen />}
+        {!noClinic && activeNav === 'Subscription' && can('CLINIC_CONNECT') && <SubscriptionScreen />}
         {activeNav === 'Users' && can('USERS_MANAGE') && <UsersScreen />}
-        {activeNav === 'Sync settings' && can('SYNC_MANAGE') && <SyncSettingsScreen />}
-        {activeNav === 'Open Dental' && can('SYNC_MANAGE') && <OpenDentalScreen />}
-        {can('APPOINTMENTS_READ') && (
+        {!noClinic && activeNav === 'Sync settings' && can('CLINIC_CONNECT') && <SyncSettingsScreen />}
+        {!noClinic && can('APPOINTMENTS_READ') && (
           <div hidden={activeNav !== 'Appointments'}>
             <AppointmentsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createAppointmentRequest} />
           </div>
@@ -297,6 +349,7 @@ function App() {
               ? <DatabaseResourceScreen key={databaseResource} name={databaseResource} />
               : <ApiCatalogScreen selectedResource={selectedApiResource} />
         )}
+        </div>
       </main>
       {passwordOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={(e) => { if (e.target === e.currentTarget) setPasswordOpen(false); }}>

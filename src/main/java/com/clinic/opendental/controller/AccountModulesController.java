@@ -1,5 +1,6 @@
 package com.clinic.opendental.controller;
 
+import com.clinic.opendental.security.CurrentClinic;
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
@@ -58,8 +59,7 @@ public class AccountModulesController {
         if (patNum <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a patient that is saved in Open Dental.");
         }
-        Clinic clinic = clinicRepository.findByIsActiveTrue().stream().findFirst()
-                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "No active clinic configured."));
+        Clinic clinic = CurrentClinic.requireConnected(clinicRepository);
         try {
             return client.getRaw("/accountmodules/" + patNum + "/" + view, params, clinic.getBaseUrl(), clinic.getApiKey());
         } catch (HttpStatusCodeException e) {
