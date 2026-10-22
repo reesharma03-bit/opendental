@@ -9,3 +9,7 @@ target/
 # Local tools and personal editor launch settings (may hold secrets)
 .tools/
 .vscode/launch.json
+
+# Local settings with private keys (see config/application.yaml): never commit
+/config/application*.yaml
+/config/application*.properties
