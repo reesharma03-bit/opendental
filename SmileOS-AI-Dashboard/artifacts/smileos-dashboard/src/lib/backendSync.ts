@@ -8,7 +8,8 @@ export interface SyncResourceResult {
   clinic: string;
   resource: string;
   records: number;
-  status: 'ok' | 'failed';
+  /** done-earlier: finished by the interrupted sync this one continues. */
+  status: 'ok' | 'failed' | 'done-earlier';
   error?: string;
 }
 
@@ -26,6 +27,14 @@ export interface SyncStatus {
   failures?: number;
   error?: string | null;
   results?: SyncResourceResult[];
+  /** Steps an interrupted sync had finished, skipped by this one (it continued where it stopped). */
+  resumed?: number;
+  /** In the first step: the core table being copied (patients, appointments, ...). */
+  coreTable?: string | null;
+  /** Inside the current step: records read so far, and patients (or parents) done of all. */
+  stepRecords?: number;
+  parentsDone?: number | null;
+  parentsTotal?: number | null;
 }
 
 /** The current clinic; {@code all} (Admins only) every clinic at once. */
@@ -33,6 +42,39 @@ export const startForceSync = (all = false) =>
   request<SyncStatus>(`/api/sync/force${all ? '?all=true' : ''}`, { method: 'POST' });
 
 export const getSyncStatus = () => request<SyncStatus>('/api/sync/force/status');
+
+// ------------------------------------------------------------- sync activity
+
+export interface SyncTableActivity {
+  name: string;
+  /** core: patients, appointments, procedures, documents; per-patient: read patient by patient. */
+  kind: 'core' | 'list' | 'per-patient';
+  records: number;
+  lastSyncedAt: string | null;
+  nextDueAt: string | null;
+  status: 'idle' | 'running' | 'failed' | 'waiting' | string;
+  error: string | null;
+}
+
+export interface SyncActivity {
+  clinicCode: string;
+  clinicName: string;
+  connected: boolean;
+  fullSync: SyncStatus;
+  /** Admins: another clinic's sync running ahead of this one (its code). */
+  otherClinicSyncing?: string | null;
+  background: {
+    lastChangePullAt: string | null;
+    lastWebhookAt: string | null;
+    lastWebhookTable: string | null;
+    editsWaiting: number;
+    editsFailed: number;
+  };
+  tables: SyncTableActivity[];
+}
+
+/** What is syncing for the clinic being viewed. */
+export const getSyncActivity = () => request<SyncActivity>('/api/sync/activity');
 
 // ---------------------------------------------------------------- pause / resume
 

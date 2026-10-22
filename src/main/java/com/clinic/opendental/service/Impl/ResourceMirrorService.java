@@ -24,6 +24,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
@@ -178,6 +179,40 @@ public class ResourceMirrorService {
     }
 
     /**
+     * Live progress of one resource during a full sync (shown on the Sync activity view), and how
+     * it is stopped part-way (pause, disconnect) and continued later after the last parent done.
+     */
+    public static final class Progress {
+        final BooleanSupplier stop;
+        /** Continue a per-patient / per-parent resource after this parent id; null = from the start. */
+        final Long startAfterParent;
+        public volatile int parentsDone;
+        public volatile int parentsTotal;
+        public volatile int records;
+        /** The last parent finished: where a stopped run continues. */
+        public volatile Long lastParent;
+        /** Stopped part-way: nothing was removed, the rest is done on the next run. */
+        public volatile boolean stopped;
+
+        public Progress(BooleanSupplier stop, Long startAfterParent) {
+            this.stop = stop == null ? () -> false : stop;
+            this.startAfterParent = startAfterParent;
+            this.lastParent = startAfterParent;
+        }
+
+        public static Progress none() {
+            return new Progress(null, null);
+        }
+    }
+
+    /** Thrown inside a page loop when the sync is stopped part-way. */
+    private static final class Stopped extends RuntimeException {
+        Stopped() {
+            super("stopped", null, false, false);
+        }
+    }
+
+    /**
      * Copies every row of one resource. Rows Open Dental no longer returns are removed,
      * but only when every call for the resource succeeded.
      */
@@ -187,21 +222,42 @@ public class ResourceMirrorService {
 
     /** As {@link #sync(Clinic, Resource, Timestamp)}, fetching per-parent resources for {@code scope}'s parents. */
     public Result sync(Clinic clinic, Resource resource, Timestamp runStart, Scope scope) {
+        return sync(clinic, resource, runStart, scope, Progress.none());
+    }
+
+    /**
+     * As {@link #sync(Clinic, Resource, Timestamp, Scope)}, reporting {@code progress} as it goes and
+     * stopping between pages / parents when it says so. Continuing a per-parent resource part-way
+     * removes only what belongs to the parents visited (or nothing, for other parents).
+     */
+    public Result sync(Clinic clinic, Resource resource, Timestamp runStart, Scope scope, Progress progress) {
         Counter counter = new Counter(UUID.randomUUID());
+        boolean partial = progress.startAfterParent != null && !resource.isList();
         try {
             List<Long> parents = null;
             if (resource.isList()) {
                 for (Map<String, String> pass : resource.passes()) {
-                    forEachPage(clinic, resource.path(), pass, rows -> save(clinic, resource, rows, null, counter));
+                    forEachPage(clinic, resource.path(), pass, rows -> {
+                        if (progress.stop.getAsBoolean()) throw new Stopped();
+                        save(clinic, resource, rows, null, counter);
+                        progress.records = counter.records;
+                    });
                 }
             } else {
-                parents = parentIds(clinic, resource, scope);
-                syncPerParent(clinic, resource, parents, counter);
+                List<Long> all = parentIds(clinic, resource, scope);
+                parents = partial ? all.stream().filter(id -> id > progress.startAfterParent).toList() : all;
+                progress.parentsTotal = all.size();
+                progress.parentsDone = all.size() - parents.size();
+                syncPerParent(clinic, resource, parents, counter, progress);
             }
-            if (counter.failedCalls == 0) {
+            if (progress.stopped) {
+                return new Result(resource.resource(), counter.records, counter.failedCalls, "stopped",
+                        counter.inserted, counter.updated, 0, counter.latestChange);
+            }
+            if (counter.failedCalls == 0 && !(partial && !scoped(resource))) {
                 String prune = PRUNE;
                 List<Object> args = new ArrayList<>(List.of(clinic.getId(), resource.resource(), runStart, counter.runBatch));
-                if (scope == Scope.RECENT && parents != null && scoped(resource)) {
+                if ((scope == Scope.RECENT || partial) && parents != null && scoped(resource)) {
                     prune = OdResourceCatalog.PATIENTS.equals(resource.parent()) ? PRUNE_FOR_PATIENTS : PRUNE_FOR_APPOINTMENTS;
                     args.add(parents.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",", "{", "}")));
                 }
@@ -215,6 +271,10 @@ public class ResourceMirrorService {
             }
             refreshTyped(clinic, resource.resource());
             return counter.result(resource.resource());
+        } catch (Stopped e) {
+            progress.stopped = true;
+            return new Result(resource.resource(), counter.records, counter.failedCalls, "stopped",
+                    counter.inserted, counter.updated, 0, counter.latestChange);
         } catch (Exception e) {
             log.warn("Syncing {} for clinic {} failed: {}", resource.resource(), clinic.getClinicCode(), e.getMessage());
             return new Result(resource.resource(), counter.records, counter.failedCalls + 1, e.getMessage(),
@@ -347,9 +407,13 @@ public class ResourceMirrorService {
         }
     }
 
-    private void syncPerParent(Clinic clinic, Resource resource, List<Long> parents, Counter counter) {
+    private void syncPerParent(Clinic clinic, Resource resource, List<Long> parents, Counter counter, Progress progress) {
         int consecutiveFailures = 0;
         for (Long parentId : parents) {
+            if (progress.stop.getAsBoolean()) {
+                progress.stopped = true;
+                return;
+            }
             try {
                 if (resource.parentInPath()) {
                     save(clinic, resource, rows(get(clinic, resource.path().replace("{id}", String.valueOf(parentId)), Map.of())),
@@ -370,6 +434,9 @@ public class ResourceMirrorService {
                     return;
                 }
             }
+            progress.lastParent = parentId;
+            progress.parentsDone++;
+            progress.records = counter.records;
         }
     }
 

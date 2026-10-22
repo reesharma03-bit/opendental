@@ -47,7 +47,10 @@ public class AppointmentResponse {
     @JsonAlias("ProvHyg") private Long ProvHyg;
     @JsonAlias("AptDateTime") private String AptDateTime;
     @JsonAlias("NextAptNum") private Long NextAptNum;
-    @JsonAlias("UnschedStatus") private Long UnschedStatus;
+    /** Its definition id; some Open Dental versions send the name instead (read as empty). */
+    @JsonAlias("UnschedStatus")
+    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.clinic.opendental.dto.LenientLong.class)
+    private Long UnschedStatus;
     @JsonAlias("IsNewPatient") private String IsNewPatient;
     @JsonAlias("ProcDescript") private String ProcDescript;
     @JsonAlias("Assistant") private Long Assistant;

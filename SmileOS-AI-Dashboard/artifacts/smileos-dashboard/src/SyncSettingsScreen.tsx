@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, CirclePause, CirclePlay, LoaderCircle, RefreshCw, Save } from 'lucide-react';
 import { useAuth } from './auth/AuthContext';
+import SyncActivityCard from './components/SyncActivityCard';
 import {
   getSyncControl, getSyncSelections, getSyncStatus, groupSyncable, pauseSync, resumeSync, saveSyncSelection,
   startForceSync, syncLabel, type ClinicSyncSelection, type SyncControlState, type SyncSelections, type SyncStatus,
@@ -54,6 +55,7 @@ export default function SyncSettingsScreen() {
         ? <div className="mt-10 flex justify-center text-slate-400"><LoaderCircle className="animate-spin" /></div>
         : (
           <>
+            <SyncActivityCard />
             {control && <PauseCard control={control} onChange={(c, message) => { setControl(c); setNotice(message); setError(''); }} onError={setError} />}
             {control && <ForceSyncCard paused={control.paused} />}
             {selections && <SelectionCard selections={selections} onSaved={(s, message) => { setSelections(s); setNotice(message); setError(''); }} onError={setError} />}

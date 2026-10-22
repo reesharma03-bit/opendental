@@ -63,4 +63,17 @@ class AppointmentResponseDeserializationTest {
         assertThat(appt.getConfirmed()).isEqualTo(19L);
         assertThat(appt.getServerDateTime()).isEqualTo("2026-08-08 10:58:44");
     }
+
+    @Test
+    void unschedStatusSentAsANameDoesNotFailThePage() throws Exception {
+        String json = "[{\"AptNum\":9,\"PatNum\":1,\"UnschedStatus\":\"Appointment Scheduled\"},"
+                + "{\"AptNum\":10,\"PatNum\":1,\"UnschedStatus\":5},{\"AptNum\":11,\"PatNum\":1,\"UnschedStatus\":\"7\"}]";
+
+        List<AppointmentResponse> result = APP_MAPPER.readValue(json, LIST_TYPE);
+
+        org.assertj.core.api.Assertions.assertThat(result).hasSize(3);
+        org.assertj.core.api.Assertions.assertThat(result.get(0).getUnschedStatus()).isNull();
+        org.assertj.core.api.Assertions.assertThat(result.get(1).getUnschedStatus()).isEqualTo(5L);
+        org.assertj.core.api.Assertions.assertThat(result.get(2).getUnschedStatus()).isEqualTo(7L);
+    }
 }

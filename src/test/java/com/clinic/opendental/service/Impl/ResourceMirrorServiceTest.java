@@ -110,6 +110,35 @@ class ResourceMirrorServiceTest {
     }
 
     @Test
+    void stoppedPartWayKeepsEverythingAndContinuesAfterTheLastPatientDone() {
+        Resource allergies = new Resource("allergies", "/allergies", "AllergyNum", OdResourceCatalog.PATIENTS, "PatNum");
+        when(jdbc.queryForList(startsWith("SELECT pat_num FROM patients"), eq(Long.class), any()))
+                .thenReturn(List.of(7L, 8L, 9L));
+        when(client.getRaw(eq("/allergies"), any(), any(), any())).thenReturn(array());
+
+        ResourceMirrorService.Progress[] holder = new ResourceMirrorService.Progress[1];
+        holder[0] = new ResourceMirrorService.Progress(() -> holder[0].parentsDone >= 1, null); // e.g. disconnected
+        ResourceMirrorService.Result stopped = service.sync(CLINIC, allergies, RUN_START, ResourceMirrorService.Scope.ALL, holder[0]);
+
+        assertThat(holder[0].stopped).isTrue();
+        assertThat(holder[0].lastParent).isEqualTo(7L);
+        assertThat(stopped.error()).isEqualTo("stopped");
+        verify(jdbc, never()).update(startsWith("DELETE FROM od_resource_records"), any(), any(), any(), any());
+
+        clearInvocations(client);
+        ResourceMirrorService.Progress next = new ResourceMirrorService.Progress(() -> false, 7L);
+        ResourceMirrorService.Result rest = service.sync(CLINIC, allergies, RUN_START, ResourceMirrorService.Scope.ALL, next);
+
+        assertThat(rest.ok()).isTrue();
+        assertThat(next.parentsDone).isEqualTo(3);
+        assertThat(next.parentsTotal).isEqualTo(3);
+        verify(client, never()).getRaw(eq("/allergies"), eq(Map.of("PatNum", "7")), any(), any());
+        verify(client).getRaw(eq("/allergies"), eq(Map.of("PatNum", "9")), any(), any());
+        // Only what belongs to the patients visited now may be removed.
+        verify(jdbc).update(contains("pat_num = ANY"), any(), any(), any(), any(), eq("{8,9}"));
+    }
+
+    @Test
     void failureForOneParentKeepsExistingRows() {
         Resource popups = new Resource("popups", "/popups", "PopupNum", OdResourceCatalog.PATIENTS, "PatNum");
         when(jdbc.queryForList(startsWith("SELECT pat_num FROM patients"), eq(Long.class), any()))

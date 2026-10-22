@@ -1070,8 +1070,15 @@ public class ReconciliationSyncService {
                 clinic.getId(), entity, id, action);
     }
 
-    private static String nvl(Object o) {
-        return o == null ? "" : o.toString();
+    /**
+     * A value as compared in a signature. Amounts compare by value: Open Dental sends 0.0 and
+     * the database gives back 0.00, which must not count as a change (it made every patient
+     * look changed, and rewrote them all, on every full sync).
+     */
+    static String nvl(Object o) {
+        if (o == null) return "";
+        if (o instanceof BigDecimal d) return d.signum() == 0 ? "0" : d.stripTrailingZeros().toPlainString();
+        return o.toString();
     }
 
     private String patientSignature(Patient p) {

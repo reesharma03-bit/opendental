@@ -28,7 +28,7 @@ class FullSyncServiceTest {
         when(reconciliation.reconcileClinic(eq(CLINIC), any()))
                 .thenReturn(new ReconciliationSyncService.ReconciliationResult(12, 0, 3, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 2, 0, null));
         FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), mock(JdbcTemplate.class), mock(org.springframework.transaction.PlatformTransactionManager.class), mock(SyncControl.class), true);
 
@@ -41,7 +41,7 @@ class FullSyncServiceTest {
         assertThat(done.get("done")).isEqualTo(resources + 1);
         assertThat(done.get("records")).isEqualTo(12 + resources * 2);
         verify(reconciliation).reconcileClinic(eq(CLINIC), any());
-        verify(mirror, times(resources)).sync(eq(CLINIC), any(), any(), eq(ResourceMirrorService.Scope.ALL));
+        verify(mirror, times(resources)).sync(eq(CLINIC), any(), any(), eq(ResourceMirrorService.Scope.ALL), any());
     }
 
     @Test
@@ -72,7 +72,7 @@ class FullSyncServiceTest {
         ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
         when(reconciliation.reconcileClinic(eq(CLINIC), any())).thenReturn(new ReconciliationSyncService.ReconciliationResult(0, 0, 0, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1,
                 "claims".equals(((OdResourceCatalog.Resource) inv.getArgument(1)).resource()) ? 1 : 0, null));
         when(mirror.acceptsChangedSince(any(), any())).thenReturn(true);
@@ -96,7 +96,7 @@ class FullSyncServiceTest {
         ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
         when(reconciliation.reconcileClinic(eq(CLINIC), any())).thenReturn(new ReconciliationSyncService.ReconciliationResult(0, 0, 0, "ok"));
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
-        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> new ResourceMirrorService.Result(
                 ((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1, 0, null));
         SyncControl control = mock(SyncControl.class);
         when(control.skips(eq(CLINIC), any())).thenAnswer(inv -> !List.of("claims", "allergies").contains(inv.getArgument(1)));
@@ -107,9 +107,9 @@ class FullSyncServiceTest {
         Map<String, Object> done = waitUntilFinished(service);
 
         assertThat(done.get("done")).isEqualTo(3); // core pass + claims + allergies
-        verify(mirror).sync(eq(CLINIC), argThat(r -> r != null && r.resource().equals("claims")), any(), any());
-        verify(mirror).sync(eq(CLINIC), argThat(r -> r != null && r.resource().equals("allergies")), any(), any());
-        verify(mirror, times(2)).sync(any(), any(), any(), any());
+        verify(mirror).sync(eq(CLINIC), argThat(r -> r != null && r.resource().equals("claims")), any(), any(), any());
+        verify(mirror).sync(eq(CLINIC), argThat(r -> r != null && r.resource().equals("allergies")), any(), any(), any());
+        verify(mirror, times(2)).sync(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -123,7 +123,7 @@ class FullSyncServiceTest {
         ResourceMirrorService mirror = mock(ResourceMirrorService.class);
         // Paused while the third resource is being read.
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
-        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> {
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> {
             if (calls.incrementAndGet() == 3) when(control.paused()).thenReturn(true);
             return new ResourceMirrorService.Result(((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1, 0, null);
         });
@@ -135,7 +135,7 @@ class FullSyncServiceTest {
 
         assertThat(done.get("state")).isEqualTo("paused");
         assertThat(done.get("error")).isEqualTo("Paused by admin@example.com");
-        verify(mirror, times(3)).sync(any(), any(), any(), any());
+        verify(mirror, times(3)).sync(any(), any(), any(), any(), any());
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.startFullSync("force"))
                 .isInstanceOf(com.clinic.opendental.exception.ApiException.class)
                 .hasMessageContaining("paused");
@@ -151,7 +151,7 @@ class FullSyncServiceTest {
         FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), mock(JdbcTemplate.class),
                 mock(org.springframework.transaction.PlatformTransactionManager.class), mock(SyncControl.class), true);
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
-        when(mirror.sync(any(), any(), any(), any())).thenAnswer(inv -> {
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> {
             if (calls.incrementAndGet() == 2) service.stop("Disconnected");
             return new ResourceMirrorService.Result(((OdResourceCatalog.Resource) inv.getArgument(1)).resource(), 1, 0, null);
         });
@@ -161,7 +161,57 @@ class FullSyncServiceTest {
 
         assertThat(done.get("state")).isEqualTo("paused");
         assertThat(done.get("error")).isEqualTo("Disconnected");
-        verify(mirror, times(2)).sync(any(), any(), any(), any());
+        verify(mirror, times(2)).sync(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aDisconnectStopsPartWayAndTheReconnectContinuesAfterTheLastPatientDone() throws Exception {
+        ClinicRepository clinics = mock(ClinicRepository.class);
+        when(clinics.findByIsActiveTrue()).thenReturn(List.of(CLINIC));
+        ReconciliationSyncService reconciliation = mock(ReconciliationSyncService.class);
+        when(reconciliation.reconcileClinic(eq(CLINIC), any())).thenReturn(new ReconciliationSyncService.ReconciliationResult(5, 0, 5, "ok"));
+        ResourceMirrorService mirror = mock(ResourceMirrorService.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        OdResourceCatalog.Resource perPatient = OdResourceCatalog.PER_PARENT.get(0);
+        java.util.concurrent.atomic.AtomicReference<FullSyncService> ref = new java.util.concurrent.atomic.AtomicReference<>();
+        List<Long> continuedAfter = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(mirror.sync(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            OdResourceCatalog.Resource r = inv.getArgument(1);
+            ResourceMirrorService.Progress progress = inv.getArgument(4);
+            if (r == perPatient) {
+                continuedAfter.add(progress.startAfterParent == null ? -1L : progress.startAfterParent);
+                if (progress.startAfterParent == null) { // first run: disconnected at patient 42
+                    ref.get().stop(CLINIC.getId(), "Disconnected");
+                    progress.lastParent = 42L;
+                    progress.stopped = true;
+                    return new ResourceMirrorService.Result(r.resource(), 7, 0, "stopped");
+                }
+            }
+            return new ResourceMirrorService.Result(r.resource(), 1, 0, null);
+        });
+        FullSyncService service = new FullSyncService(clinics, reconciliation, mirror, mock(SyncCursors.class), jdbc,
+                mock(org.springframework.transaction.PlatformTransactionManager.class), mock(SyncControl.class), true);
+        ref.set(service);
+
+        service.startFullSync("connect", CLINIC.getId());
+        assertThat(waitUntilFinished(service).get("state")).isEqualTo("paused");
+
+        // What the stopped run finished, as sync_runs records it.
+        when(jdbc.queryForList(contains("min(started_at)"), eq(java.sql.Timestamp.class), any(), any()))
+                .thenReturn(List.of(java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(60))));
+        List<String> finished = new java.util.ArrayList<>(List.of(FullSyncService.CORE));
+        OdResourceCatalog.LISTS.forEach(r -> finished.add(r.resource()));
+        when(jdbc.queryForList(contains("DISTINCT resource"), eq(String.class), any(), any())).thenReturn(finished);
+        clearInvocations(mirror, reconciliation);
+
+        service.startFullSync("connect", CLINIC.getId()); // reconnected
+        Map<String, Object> done = waitUntilFinished(service);
+
+        assertThat(done.get("state")).isEqualTo("completed");
+        assertThat(done.get("resumed")).isEqualTo(finished.size());
+        verifyNoInteractions(reconciliation); // core tables were done
+        verify(mirror, times(OdResourceCatalog.PER_PARENT.size())).sync(any(), any(), any(), any(), any()); // no list again
+        assertThat(continuedAfter).containsExactly(-1L, 42L); // carries on after patient 42
     }
 
     private static Map<String, Object> waitUntilFinished(FullSyncService service) throws InterruptedException {

@@ -67,7 +67,10 @@ class OdSyncServiceTest {
         ClinicRepository clinics = mock(ClinicRepository.class);
 
         when(clinics.findById(CLINIC_ID)).thenReturn(Optional.of(
-                Clinic.builder().id(CLINIC_ID).baseUrl("http://od").apiKey("ODFHIR dev/cust").build()));
+                Clinic.builder().id(CLINIC_ID).baseUrl("http://od").apiKey("ODFHIR dev/cust").isActive(true).build()));
+        when(clinics.findById(DISCONNECTED_ID)).thenReturn(Optional.of(
+                Clinic.builder().id(DISCONNECTED_ID).clinicName("Old Clinic").baseUrl("http://od").apiKey("ODFHIR dev/cust")
+                        .isActive(false).build()));
 
         // In-memory queue
         when(tasks.save(any(OdSyncTask.class))).thenAnswer(inv -> store(inv.getArgument(0)));
@@ -114,6 +117,21 @@ class OdSyncServiceTest {
         assertThat(copy.getWirelessPhone()).isEqualTo("555-0199");
         assertThat(copy.getBirthdate()).isEqualTo("1976-05-24");
         assertThat(copy.getPriProv()).isEqualTo(2L);
+    }
+
+    private static final java.util.UUID DISCONNECTED_ID = java.util.UUID.randomUUID();
+
+    @Test
+    void aDisconnectedClinicsQueuedChangesNeverReachOpenDental() {
+        long taskId = service.recordCreate(DISCONNECTED_ID, OdSyncService.PATIENT, OdSyncService.CREATE,
+                CreatePatientRequest.builder().LName("Smith").FName("John").build(), id -> { });
+
+        assertThat(service.process(taskId)).isFalse();
+
+        verifyNoInteractions(client);
+        assertThat(queue.get(taskId).getStatus()).isEqualTo(OdSyncTask.PENDING); // waits, attempts untouched
+        assertThat(queue.get(taskId).getAttempts()).isZero();
+        assertThat(queue.get(taskId).getLastError()).contains("isn't connected");
     }
 
     @Test

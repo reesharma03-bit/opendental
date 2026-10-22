@@ -87,6 +87,17 @@ class ReconciliationSyncServicePatientsTest {
     // Test: null-patNum record is skipped (not inserted)
     // ================================================================
     @Test
+    void amountsReadBackFromTheDatabaseDontCountAsChanges() {
+        // Open Dental sends 0.0 / 120.5; the numeric(12,2) columns give back 0.00 / 120.50.
+        org.assertj.core.api.Assertions.assertThat(ReconciliationSyncService.nvl(new BigDecimal("0.00")))
+                .isEqualTo(ReconciliationSyncService.nvl(BigDecimal.valueOf(0.0)));
+        org.assertj.core.api.Assertions.assertThat(ReconciliationSyncService.nvl(new BigDecimal("120.50")))
+                .isEqualTo(ReconciliationSyncService.nvl(BigDecimal.valueOf(120.5)));
+        org.assertj.core.api.Assertions.assertThat(ReconciliationSyncService.nvl(new BigDecimal("120.50")))
+                .isNotEqualTo(ReconciliationSyncService.nvl(BigDecimal.valueOf(120.51)));
+    }
+
+    @Test
     void skipNullPatNumRecord() throws Exception {
         OpenDentalClient client = mock(OpenDentalClient.class);
         PatientRepository patientRepository = mock(PatientRepository.class);

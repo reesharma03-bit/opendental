@@ -48,6 +48,7 @@ public class SyncController {
     private final OdSyncService odSyncService;
     private final FullSyncService fullSyncService;
     private final SyncControl syncControl;
+    private final com.clinic.opendental.service.Impl.SyncActivity syncActivity;
     private final ClinicRepository clinicRepository;
     private final AuditService audit;
 
@@ -84,6 +85,7 @@ public class SyncController {
     public ResponseEntity<Map<String, Object>> resume(HttpServletRequest request) {
         SyncControl.State state = syncControl.resume(by());
         audit.record("SYNC_RESUMED", null, request);
+        fullSyncService.resumeInterrupted(); // stopped syncs continue where they stopped
         return ResponseEntity.ok(controlBody(state));
     }
 
@@ -178,6 +180,17 @@ public class SyncController {
         Clinic clinic = CurrentClinic.require(clinicRepository);
         fullSyncService.startFullSync("force", clinic.getId());
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(fullSyncService.status(clinic));
+    }
+
+    /**
+     * GET /api/sync/activity
+     * What is syncing for the current clinic: the full sync in progress, background work (change
+     * pull, live updates, edits waiting) and, per table, records held and when last synced.
+     */
+    @GetMapping("/activity")
+    public ResponseEntity<Map<String, Object>> activity() {
+        Clinic clinic = CurrentClinic.require(clinicRepository);
+        return ResponseEntity.ok(syncActivity.activity(clinic, CurrentUser.role() == Role.ADMIN));
     }
 
     /**

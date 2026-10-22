@@ -110,7 +110,9 @@ public class PermissionResolver {
             case "sync":
                 // The current clinic's sync (Sync settings, Open Dental page): Admins and Dentists.
                 // Everything platform-wide (pause / resume, the push queue, developer sync endpoints): Admins.
-                if ("connection".equals(second) || "clinics".equals(second)) return Requirement.of(Permission.CLINIC_CONNECT);
+                if ("connection".equals(second) || "clinics".equals(second) || "activity".equals(second)) {
+                    return Requirement.of(Permission.CLINIC_CONNECT);
+                }
                 if ("force".equals(second)) {
                     return read && parts.length > 2 && "status".equals(parts[2])
                             ? Requirement.AUTHENTICATED : Requirement.of(Permission.CLINIC_CONNECT);

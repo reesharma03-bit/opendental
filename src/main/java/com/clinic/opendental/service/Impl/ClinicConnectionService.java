@@ -96,6 +96,8 @@ public class ClinicConnectionService {
     private static final ObjectMapper JSON = new ObjectMapper();
     /** Clinics whose webhooks are being set up right now (shown on the page). */
     private final Set<UUID> settingUp = ConcurrentHashMap.newKeySet();
+    /** Clinics whose webhooks are being removed from Open Dental after a disconnect. */
+    private final Set<UUID> removingWebhooks = ConcurrentHashMap.newKeySet();
     /** Webhook setup and removal: one Open Dental call a second, so not while the page waits. */
     Executor background = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "od-webhook-removal");
@@ -520,15 +522,25 @@ public class ClinicConnectionService {
         clinic.setIsActive(false);
         clinics.saveAndFlush(clinic);
         fullSync.stop(clinic.getId(), "Disconnected");
-        background.execute(() -> removeWebhooks(clinic));
+        removingWebhooks.add(clinic.getId());
+        background.execute(() -> {
+            try {
+                removeWebhooks(clinic);
+            } finally {
+                removingWebhooks.remove(clinic.getId());
+            }
+        });
         return clinic;
     }
 
     /**
-     * Removes a disconnected clinic for good: the clinic and everything copied for it (patients,
-     * appointments, records, sync history; the database deletes them with the clinic). Staff
-     * linked to it are unlinked, not deleted; the audit log keeps its entries. Only a disconnected
-     * clinic can be removed, and the user confirms by typing its name.
+     * Removes a disconnected clinic for good from SmileOS's own database (Supabase): the clinic and
+     * everything copied for it (patients, appointments, records, sync history; the database deletes
+     * them with the clinic). Staff linked to it are unlinked, not deleted; the audit log keeps its
+     * entries. Only a disconnected clinic can be removed, and the user confirms by typing its name.
+     *
+     * <p>Nothing is sent to Open Dental: its database is never changed by a removal. Changes still
+     * queued for the clinic are dropped with it, so they never reach Open Dental either.</p>
      *
      * @return "Name (CODE)" of the removed clinic
      */
@@ -539,6 +551,10 @@ public class ClinicConnectionService {
         Clinic clinic = manageable(clinicCode);
         if (Boolean.TRUE.equals(clinic.getIsActive())) {
             throw new ApiException(HttpStatus.CONFLICT, clinic.getClinicName() + " is connected. Disconnect it first; only a disconnected clinic can be removed.");
+        }
+        if (removingWebhooks.contains(clinic.getId()) || settingUp.contains(clinic.getId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "SmileOS is still finishing the disconnect of " + clinic.getClinicName()
+                    + " in Open Dental. Try again in a minute.");
         }
         String typed = confirmName == null ? "" : confirmName.trim();
         if (clinic.getClinicName() == null || !typed.equalsIgnoreCase(clinic.getClinicName().trim())) {

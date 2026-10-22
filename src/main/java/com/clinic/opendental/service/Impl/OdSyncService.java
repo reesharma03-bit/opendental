@@ -359,6 +359,11 @@ public class OdSyncService {
             if (clinic == null) {
                 throw new Gone("clinic " + task.getClinicId() + " no longer exists");
             }
+            // Disconnected: nothing is sent to its Open Dental. The change waits (without using up
+            // its attempts) and goes out if the clinic is connected again; removing the clinic drops it.
+            if (!Boolean.TRUE.equals(clinic.getIsActive())) {
+                throw new Wait(clinic.getClinicName() + " isn't connected: this change waits until it is connected again.");
+            }
             pushed = send(task, clinic);
         } catch (Wait e) {
             reschedule(task, e.getMessage());

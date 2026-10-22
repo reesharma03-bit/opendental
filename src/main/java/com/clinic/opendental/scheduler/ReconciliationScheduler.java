@@ -30,6 +30,7 @@ public class ReconciliationScheduler {
     private final CoreChangeSync coreChangeSync;
     private final FullSyncService fullSyncService;
     private final SyncControl syncControl;
+    private final com.clinic.opendental.service.Impl.SyncActivity syncActivity;
 
     @Value("${reconciliation.enabled:true}")
     private boolean enabled;
@@ -43,6 +44,7 @@ public class ReconciliationScheduler {
         for (Clinic clinic : clinicRepository.findByIsActiveTrue()) {
             try {
                 coreChangeSync.pull(clinic, table -> !syncControl.skips(clinic, table));
+                syncActivity.changePullRan(clinic.getId());
             } catch (Exception e) {
                 log.warn("Change pull for clinic {} failed: {}", clinic.getClinicCode(), e.getMessage());
             }

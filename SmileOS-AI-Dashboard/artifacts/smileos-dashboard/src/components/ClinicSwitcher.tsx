@@ -1,8 +1,30 @@
 import { useEffect, useState } from 'react';
-import { Building2, Plus } from 'lucide-react';
+import { Building2, LoaderCircle, Plus } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { CLINICS_CHANGED_EVENT, CLINIC_EVENT, chooseClinic, chosenClinic } from '../lib/backend';
 import { listClinics, type ConnectedClinic } from '../lib/backendConnection';
+import { getSyncStatus, type SyncStatus } from '../lib/backendSync';
+
+/** "Syncing · step 14 of 95" while the viewed clinic's full sync runs; opens Sync settings. */
+function SyncingBadge({ onOpen }: { onOpen: () => void }) {
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    const load = () => getSyncStatus().then((s) => { if (!stopped) setStatus(s); }).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 8000);
+    window.addEventListener(CLINIC_EVENT, load);
+    return () => { stopped = true; window.clearInterval(timer); window.removeEventListener(CLINIC_EVENT, load); };
+  }, []);
+  if (status?.state !== 'running' && status?.state !== 'queued') return null;
+  return (
+    <button type="button" onClick={onOpen} data-testid="button-syncing-badge" title="See what is syncing"
+      className="flex h-7 items-center gap-1.5 rounded-full border border-blue-200 bg-white px-2.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-50">
+      <LoaderCircle size={12} className="animate-spin" />
+      {status.state === 'queued' ? 'Sync waiting' : `Syncing · step ${status.done ?? 0} of ${status.total ?? 0}${status.currentStep ? ` · ${status.coreTable ?? status.currentStep.slice(status.currentStep.indexOf(':') + 1).trim().split(',')[0]}` : ''}${status.parentsTotal ? ` · ${(status.parentsDone ?? 0).toLocaleString()}/${status.parentsTotal.toLocaleString()}` : ''}`}
+    </button>
+  );
+}
 
 /** For staff: the clinic they belong to, shown in the top bar, with whether it is connected. */
 export function ClinicName() {
@@ -40,7 +62,7 @@ export function DisconnectedBanner({ onReconnect }: { onReconnect: () => void })
  * For Admins (SmileOS administrators), on every screen: which clinic's data the screen shows,
  * a dropdown to switch clinic, and a way to register a new one.
  */
-export default function ClinicBar({ onRegister }: { onRegister: () => void }) {
+export default function ClinicBar({ onRegister, onOpenSync }: { onRegister: () => void; onOpenSync: () => void }) {
   const { user } = useAuth();
   // Admins choose among every clinic, dentists among the clinics they own.
   const admin = user?.role === 'ADMIN' || user?.role === 'DENTIST';
@@ -108,6 +130,7 @@ export default function ClinicBar({ onRegister }: { onRegister: () => void }) {
             {typeof currentClinic.patients === 'number' ? ` · ${currentClinic.patients.toLocaleString()} patients` : ''}
           </span>
         )}
+        {currentClinic?.connected && <SyncingBadge key={current} onOpen={onOpenSync} />}
         <span className="hidden text-[10.5px] text-indigo-800/70 lg:inline">
           {list.length > 1 ? `Every screen shows this clinic's data · ${list.length} clinics` : 'Every screen shows this clinic\'s data'}
         </span>

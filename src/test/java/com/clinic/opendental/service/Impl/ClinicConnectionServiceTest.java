@@ -320,6 +320,29 @@ class ClinicConnectionServiceTest {
     }
 
     @Test
+    void aClinicCantBeRemovedWhileItsDisconnectIsStillCleaningUpInOpenDental() {
+        Clinic clinic = Clinic.builder().id(UUID.randomUUID()).clinicCode("DR_SHARMA").clinicName("Dr Sharma")
+                .baseUrl("http://localhost:30223/api/v1").apiKey("ODFHIR dev/k").isActive(true).build();
+        ClinicRepository repo = mock(ClinicRepository.class);
+        when(repo.findByClinicCode("DR_SHARMA")).thenReturn(java.util.Optional.of(clinic));
+        when(repo.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        ClinicConnectionService service = new ClinicConnectionService(repo, client, mock(AppUserRepository.class),
+                mock(ResourceMirrorService.class), mock(FullSyncService.class), mock(SyncControl.class), jdbc,
+                mock(PlatformTransactionManager.class), "dev", "https://api.opendental.com/api/v1", "", 30);
+        java.util.List<Runnable> later = new java.util.ArrayList<>();
+        service.background = later::add;
+        TestSession.signIn(Role.ADMIN, null);
+
+        service.disconnect("DR_SHARMA"); // removing its webhooks in Open Dental is still pending
+        assertThatThrownBy(() -> service.remove("DR_SHARMA", "Dr Sharma")).hasMessageContaining("still finishing the disconnect");
+        verify(repo, never()).delete(any());
+
+        when(client.getRaw(eq("/subscriptions"), any(), any(), any())).thenReturn(JSON.createArrayNode());
+        later.forEach(Runnable::run); // the clean-up ends
+        assertThat(service.remove("DR_SHARMA", "Dr Sharma")).isEqualTo("Dr Sharma (DR_SHARMA)");
+    }
+
+    @Test
     void onlyADisconnectedClinicIsRemovedAfterTypingItsNameByAnAdminOrItsDentist() {
         UUID sharma = UUID.randomUUID();
         Clinic connected = Clinic.builder().id(UUID.randomUUID()).clinicCode("LIVE").clinicName("Live Dental")
@@ -345,6 +368,8 @@ class ClinicConnectionServiceTest {
         assertThat(service.remove("DR_SHARMA", " dr sharma ")).isEqualTo("Dr Sharma (DR_SHARMA)");
         verify(repo).delete(old);
         verify(repo, never()).delete(connected);
+        // Removing deletes from SmileOS's database only: Open Dental is never called.
+        verifyNoInteractions(client);
     }
 
     @Test

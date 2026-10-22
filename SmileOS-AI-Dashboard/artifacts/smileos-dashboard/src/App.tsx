@@ -294,7 +294,7 @@ function App() {
             </div>
           </div>
         </header>
-        <ClinicBar onRegister={() => { setActiveNav('Open Dental'); setRegisterRequest((n) => n + 1); }} />
+        <ClinicBar onRegister={() => { setActiveNav('Open Dental'); setRegisterRequest((n) => n + 1); }} onOpenSync={() => setActiveNav('Sync settings')} />
         <DisconnectedBanner onReconnect={() => setActiveNav('Open Dental')} />
         {activeNav === 'Open Dental' && can('CLINIC_CONNECT') && <OpenDentalScreen key={registerRequest} startRegister={registerRequest > 0} />}
         <div key={`screens-${clinicVersion}`}>

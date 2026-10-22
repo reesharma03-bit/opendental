@@ -68,6 +68,20 @@ public class FullSyncService {
         return thread;
     });
     private volatile Run lastRun;
+    /**
+     * Where a per-patient / per-parent resource stopped part-way, per clinic: a continued sync
+     * picks it up after the last patient done. In memory only: after a restart of the backend that
+     * one resource starts again from its first patient (the finished resources are still skipped).
+     */
+    private final Map<UUID, Partial> partials = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record Partial(String resource, Long lastParent) {
+    }
+
+    /** Triggers that continue an interrupted sync instead of starting over. */
+    private static boolean continues(String trigger) {
+        return "connect".equals(trigger) || "resume".equals(trigger);
+    }
 
     public FullSyncService(ClinicRepository clinicRepository,
                            ReconciliationSyncService reconciliationSyncService,
@@ -116,7 +130,12 @@ public class FullSyncService {
             throw new ApiException(HttpStatus.CONFLICT, "Sync is paused. Resume it on the Sync settings screen first.");
         }
         if (!running.compareAndSet(false, true)) {
-            if (clinicId != null && !clinicId.equals(lastRun == null ? null : lastRun.clinicId) && !waiting.contains(clinicId)) {
+            Run current = lastRun;
+            // Already being synced by the running sync (and not on its way out): nothing to add.
+            boolean covered = current != null && clinicId != null && stopReason == null && !skipped.contains(clinicId)
+                    && (clinicId.equals(current.clinicId) || current.clinicId == null);
+            // Reconnected while its stopped sync is still finishing: it continues right after.
+            if (clinicId != null && !covered && !waiting.contains(clinicId)) {
                 waiting.add(clinicId);
             }
             return status();
@@ -170,6 +189,66 @@ public class FullSyncService {
         return run == null ? Map.of("state", "idle") : run.snapshot();
     }
 
+    /**
+     * Sync was resumed: every sync that was stopped part-way (by the pause, or by a restart of the
+     * backend) continues from where it stopped. What it had finished is not copied again.
+     */
+    public void resumeInterrupted() {
+        if (control.paused()) return;
+        for (Clinic clinic : clinicRepository.findByIsActiveTrue()) {
+            if (interruptedSince(clinic.getId()) == null) continue;
+            try {
+                startFullSync("resume", clinic.getId());
+            } catch (Exception e) {
+                log.warn("Could not continue the sync of {}: {}", clinic.getClinicCode(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * When the clinic's interrupted full sync began: the first full sync since its last finished
+     * one that was stopped (or cut off by a restart). Null when there is nothing to continue.
+     */
+    Timestamp interruptedSince(UUID clinicId) {
+        try {
+            List<Timestamp> found = jdbc.queryForList("""
+                    SELECT min(started_at) FROM sync_runs
+                    WHERE clinic_id = ? AND entity_type = 'all' AND sync_type LIKE 'full:%' AND status IN ('stopped', 'running')
+                      AND started_at > coalesce((SELECT max(started_at) FROM sync_runs
+                                                 WHERE clinic_id = ? AND entity_type = 'all' AND sync_type LIKE 'full:%'
+                                                   AND status IN ('completed', 'completed_with_errors')), '-infinity')
+                    """, Timestamp.class, clinicId, clinicId);
+            return found.isEmpty() ? null : found.get(0);
+        } catch (Exception e) {
+            log.debug("Could not read interrupted syncs: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** What the interrupted sync since {@code since} already finished ("core tables" and resource names). */
+    java.util.Set<String> finishedSince(UUID clinicId, Timestamp since) {
+        try {
+            return new java.util.HashSet<>(jdbc.queryForList("""
+                    SELECT DISTINCT resource FROM sync_runs
+                    WHERE clinic_id = ? AND sync_type = 'resource' AND status = 'completed' AND started_at >= ?
+                    """, String.class, clinicId, since));
+        } catch (Exception e) {
+            log.debug("Could not read finished resources: {}", e.getMessage());
+            return java.util.Set.of();
+        }
+    }
+
+    /** A sync cut off by a restart of the backend continues once it is up again. */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void continueAfterRestart() {
+        if (!enabled) return;
+        try {
+            resumeInterrupted();
+        } catch (Exception e) {
+            log.warn("Could not continue interrupted syncs: {}", e.getMessage());
+        }
+    }
+
     @Scheduled(cron = "${resource-sync.full-cron:0 0 2 * * *}")
     public void scheduledFullSync() {
         if (enabled && !control.paused()) {
@@ -196,6 +275,7 @@ public class FullSyncService {
                 chosen.put(clinic, resources.stream().filter(r -> !control.skips(clinic, r.resource())).toList());
             }
             run.total = chosen.values().stream().mapToInt(r -> r.size() + (run.full ? 1 : 0)).sum();
+            chosen.forEach((clinic, list) -> run.totals.put(clinic.getClinicCode(), list.size() + (run.full ? 1 : 0)));
             for (Map.Entry<Clinic, List<Resource>> entry : chosen.entrySet()) {
                 if (!syncClinic(run, entry.getKey(), entry.getValue())) {
                     run.stop(stopReason != null ? stopReason : "Paused" + pausedBy());
@@ -223,19 +303,42 @@ public class FullSyncService {
 
     /** @return false when sync was paused part-way */
     private boolean syncClinic(Run run, Clinic clinic, List<Resource> resources) {
+        // Reconnected or resumed: continue the interrupted sync, skipping what it finished.
+        java.util.Set<String> finished = java.util.Set.of();
+        if (continues(run.trigger)) {
+            Timestamp since = interruptedSince(clinic.getId());
+            if (since != null) finished = finishedSince(clinic.getId(), since);
+        } else {
+            partials.remove(clinic.getId());
+        }
+        Partial partial = continues(run.trigger) ? partials.get(clinic.getId()) : null;
+
         UUID runId = recordStart(clinic, run);
         int records = 0;
         int failures = 0;
         Timestamp runStart = Timestamp.from(Instant.now());
+        java.util.function.BooleanSupplier stopNow =
+                () -> control.paused() || stopReason != null || skipped.contains(clinic.getId());
 
         if (run.full) {
-            run.step(clinic, "patients, appointments, documents, procedure logs, ...");
-            ReconciliationSyncService.ReconciliationResult core =
-                    reconciliationSyncService.reconcileClinic(clinic, table -> !control.skips(clinic, table));
-            run.add(clinic, "core tables", core.syncedCount(), core.failedCount(),
-                    core.failedCount() > 0 ? core.message() : null);
-            records += core.syncedCount();
-            failures += core.failedCount();
+            if (finished.contains(CORE)) {
+                run.skip(clinic, CORE);
+            } else {
+                run.step(clinic, "patients, appointments, documents, procedure logs, ...");
+                ReconciliationSyncService.ReconciliationResult core =
+                        reconciliationSyncService.reconcileClinic(clinic, table -> {
+                            boolean included = !control.skips(clinic, table);
+                            if (included) run.coreTable = table;
+                            return included;
+                        });
+                run.coreTable = null;
+                run.add(clinic, CORE, core.syncedCount(), core.failedCount(),
+                        core.failedCount() > 0 ? core.message() : null);
+                recordResource(clinic, run, new ResourceMirrorService.Result(CORE, core.syncedCount(), core.failedCount(),
+                        core.failedCount() > 0 ? core.message() : null));
+                records += core.syncedCount();
+                failures += core.failedCount();
+            }
         }
         for (Resource resource : resources) {
             if (control.paused() || stopReason != null) {
@@ -246,12 +349,30 @@ public class FullSyncService {
                 recordEnd(runId, records, failures, "stopped");
                 return true; // disconnected: carry on with the other clinics
             }
+            if (finished.contains(resource.resource())) {
+                run.skip(clinic, resource.resource());
+                continue;
+            }
             run.step(clinic, resource.resource());
+            Long startAfter = partial != null && partial.resource().equals(resource.resource()) ? partial.lastParent() : null;
+            ResourceMirrorService.Progress progress = new ResourceMirrorService.Progress(stopNow, startAfter);
+            run.progress = progress;
             // Nightly: per-patient resources for recently active patients plus a rolling seventh of
             // the rest (Open Dental's ~1 call/second can't cover every patient every night).
             // Force Sync: everyone.
             ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart,
-                    "nightly".equals(run.trigger) ? ResourceMirrorService.Scope.RECENT : ResourceMirrorService.Scope.ALL);
+                    "nightly".equals(run.trigger) ? ResourceMirrorService.Scope.RECENT : ResourceMirrorService.Scope.ALL, progress);
+            run.progress = null;
+            if (progress.stopped) {
+                // Stopped part-way: kept as is; the next continued sync carries on after the last patient done.
+                if (!resource.isList() && progress.lastParent != null) {
+                    partials.put(clinic.getId(), new Partial(resource.resource(), progress.lastParent));
+                }
+                records += result.records();
+                recordEnd(runId, records, failures, "stopped");
+                return !(control.paused() || stopReason != null);
+            }
+            partials.remove(clinic.getId());
             run.add(clinic, result.resource(), result.records(), result.ok() ? 0 : 1, result.error());
             recordResource(clinic, run, result);
             if (resource.isList() && result.ok()) {
@@ -263,6 +384,9 @@ public class FullSyncService {
         recordEnd(runId, records, failures, failures == 0 ? "completed" : "completed_with_errors");
         return true;
     }
+
+    /** The step that copies the tables with their own schema (patients, appointments, ...). */
+    static final String CORE = "core tables";
 
     private String pausedBy() {
         String by = control.state().pausedBy();
@@ -342,6 +466,13 @@ public class FullSyncService {
         volatile int done;
         volatile int records;
         volatile int failures;
+        /** Steps skipped because an interrupted sync had finished them. */
+        volatile int resumed;
+        /** Core table being copied in the first step (patients, appointments, ...). */
+        volatile String coreTable;
+        /** Progress inside the resource being copied. */
+        volatile ResourceMirrorService.Progress progress;
+        final Map<String, Integer> totals = new java.util.concurrent.ConcurrentHashMap<>();
         final List<Map<String, Object>> results = new ArrayList<>();
 
         Run(String trigger, boolean full, UUID clinicId) {
@@ -367,6 +498,30 @@ public class FullSyncService {
             done++;
             records += count;
             failures += failed;
+        }
+
+        /** Finished by the interrupted sync this one continues. */
+        synchronized void skip(Clinic clinic, String resource) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("clinic", clinic.getClinicCode());
+            result.put("resource", resource);
+            result.put("records", 0);
+            result.put("status", "done-earlier");
+            results.add(result);
+            done++;
+            resumed++;
+        }
+
+        /** Live detail of the step: core table, or patients done in a per-patient resource. */
+        void live(Map<String, Object> map) {
+            map.put("resumed", resumed);
+            map.put("coreTable", coreTable);
+            ResourceMirrorService.Progress p = progress;
+            if (p != null && "running".equals(state)) {
+                map.put("stepRecords", p.records);
+                map.put("parentsDone", p.parentsTotal > 0 ? p.parentsDone : null);
+                map.put("parentsTotal", p.parentsTotal > 0 ? p.parentsTotal : null);
+            }
         }
 
         void finish() {
@@ -401,11 +556,16 @@ public class FullSyncService {
             map.put("finishedAt", finishedAt == null ? null : finishedAt.toString());
             map.put("currentStep", currentStep != null && currentStep.startsWith(clinicCode + ":") ? currentStep : null);
             map.put("done", mine.size());
-            map.put("total", null);
+            map.put("total", totals.get(clinicCode));
             map.put("records", mine.stream().mapToInt(r -> ((Number) r.get("records")).intValue()).sum());
             map.put("failures", (int) mine.stream().filter(r -> "failed".equals(r.get("status"))).count());
             map.put("error", error);
             map.put("results", mine);
+            if (map.get("currentStep") != null) {
+                live(map);
+            } else {
+                map.put("resumed", (int) mine.stream().filter(r -> "done-earlier".equals(r.get("status"))).count());
+            }
             return map;
         }
 
@@ -423,6 +583,7 @@ public class FullSyncService {
             map.put("failures", failures);
             map.put("error", error);
             map.put("results", new ArrayList<>(results));
+            live(map);
             return map;
         }
     }

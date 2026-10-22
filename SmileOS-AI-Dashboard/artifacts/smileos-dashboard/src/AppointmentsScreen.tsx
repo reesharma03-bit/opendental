@@ -129,6 +129,12 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Keep the list current like the dashboard: appointments copied from Open Dental since the
+  // screen loaded (a new clinic's first sync, webhooks, the per-minute change pull) appear by themselves.
+  useEffect(() => {
+    const timer = window.setInterval(() => { void load(); }, 60000);
+    return () => window.clearInterval(timer);
+  }, [load]);
   const [editing, setEditing] = useState<AppointmentRecord | null>(null);
   const [draft, setDraft] = useState<AppointmentDraft>(emptyDraft());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -376,7 +382,7 @@ export default function AppointmentsScreen({ search, onSearchChange, announce, c
                   <td className="px-5 py-3 text-right sm:px-6"><button type="button" onClick={() => openEdit(record)} data-testid={`button-edit-appointment-${record.AptNum}`} aria-label={`Edit appointment ${record.AptNum}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"><Pencil size={12} /> Edit</button></td>
                 </tr>;
               })}
-              {visible.length === 0 && <tr><td colSpan={7} className="px-6 py-12 text-center" data-testid="empty-appointment-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">{loading ? 'Loading appointments…' : search ? 'No matching appointments' : 'No appointments in the database yet'}</p><p className="mt-1 text-[10px] text-slate-400">{search ? 'Try another patient, appointment ID, status or operatory.' : 'Use Force Sync to copy appointments from Open Dental, or create one.'}</p></td></tr>}
+              {visible.length === 0 && <tr><td colSpan={7} className="px-6 py-12 text-center" data-testid="empty-appointment-results"><span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><Search size={17} /></span><p className="mt-3 text-[12px] font-semibold text-slate-600">{loading ? 'Loading appointments…' : search ? 'No matching appointments' : 'No appointments in the database yet'}</p><p className="mt-1 text-[10px] text-slate-400">{search ? 'Try another patient, appointment ID, status or operatory.' : "A newly connected clinic's first sync may still be copying them from Open Dental; this list refreshes every minute."}</p></td></tr>}
             </tbody>
           </table>
         </div>

@@ -24,6 +24,8 @@ public class WebhookAuthConfig implements WebMvcConfigurer {
 
     /** Looked up per call, so web slices that don't include it (controller tests) still start. */
     private final ObjectProvider<WebhookClinics> webhookClinics;
+    /** Notes when each clinic's live updates arrive (Sync activity view). */
+    private final ObjectProvider<com.clinic.opendental.service.Impl.SyncActivity> syncActivity;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -31,7 +33,12 @@ public class WebhookAuthConfig implements WebMvcConfigurer {
             @Override
             public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
                 try {
-                    webhookClinics.getObject().clinic();
+                    var clinic = webhookClinics.getObject().clinic();
+                    var activity = syncActivity.getIfAvailable();
+                    if (activity != null && clinic != null) {
+                        String uri = request.getRequestURI();
+                        activity.webhookArrived(clinic.getId(), uri.substring(uri.lastIndexOf('/') + 1));
+                    }
                     return true;
                 } catch (WebhookClinics.UnknownPractice e) {
                     log.warn("Refused webhook {} from {}: {}", request.getRequestURI(), request.getRemoteAddr(), e.getMessage());
