@@ -83,6 +83,14 @@ class ClinicConnectionServiceTest {
     }
 
     @Test
+    void anEventOlderOpenDentalVersionsDontHaveIsUnsupportedNotAnError() {
+        assertThat(ClinicConnectionService.unsupported(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request",
+                null, "\"WatchTable is invalid.\"".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))).isTrue();
+        assertThat(ClinicConnectionService.unsupported(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request",
+                null, "\"EndPointUrl is invalid.\"".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))).isFalse();
+    }
+
+    @Test
     void withoutAPublicAddressNothingIsSentToOpenDental() {
         List<ClinicConnectionService.Webhook> result = service("dev", "").setUpWebhooks(CLINIC);
 

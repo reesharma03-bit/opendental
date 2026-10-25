@@ -544,6 +544,7 @@ const STATE_STYLE: Record<Webhook['state'], { cls: string; label: string }> = {
   missing: { cls: 'bg-slate-100 text-slate-600', label: 'Missing' },
   failed: { cls: 'bg-rose-50 text-rose-700', label: 'Error' },
   off: { cls: 'bg-slate-100 text-slate-500', label: 'Off' },
+  unsupported: { cls: 'bg-slate-100 text-slate-500', label: 'Not in this version' },
 };
 
 function WebhooksCard({ state, onDone, onError }: CardProps) {
@@ -618,7 +619,7 @@ function WebhooksCard({ state, onDone, onError }: CardProps) {
         <ul className="mt-4 grid gap-1.5 sm:grid-cols-2" data-testid="list-webhooks">
           {state.webhooks.map((w) => (
             <li key={w.event} title={w.detail} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-[11px]">
-              {w.state === 'ok' ? <CheckCircle2 size={13} className="text-emerald-500" /> : w.state === 'off' ? <CircleDashed size={13} className="text-slate-400" /> : <CircleAlert size={13} className="text-amber-500" />}
+              {w.state === 'ok' ? <CheckCircle2 size={13} className="text-emerald-500" /> : w.state === 'off' || w.state === 'unsupported' ? <CircleDashed size={13} className="text-slate-400" /> : <CircleAlert size={13} className="text-amber-500" />}
               <span className="min-w-0 flex-1 truncate text-slate-700">{eventLabel(w.event)}</span>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATE_STYLE[w.state].cls}`}>{STATE_STYLE[w.state].label}</span>
             </li>
@@ -629,6 +630,13 @@ function WebhooksCard({ state, onDone, onError }: CardProps) {
         <ul className="mt-3 space-y-1 text-[11px] text-amber-800">
           {state.webhooks.filter((w) => w.state === 'failing' || w.state === 'failed').map((w) => <li key={w.event}><b>{eventLabel(w.event)}:</b> {w.detail}</li>)}
         </ul>
+      )}
+      {state.webhooks.some((w) => w.state === 'unsupported') && (
+        <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-600" data-testid="text-webhooks-unsupported">
+          <b>Not offered by this practice's Open Dental version:</b>{' '}
+          {state.webhooks.filter((w) => w.state === 'unsupported').map((w) => eventLabel(w.event)).join(', ')}.
+          {' '}SmileOS sets these up by itself after Open Dental is updated; until then their changes arrive through the regular sync.
+        </p>
       )}
     </section>
   );

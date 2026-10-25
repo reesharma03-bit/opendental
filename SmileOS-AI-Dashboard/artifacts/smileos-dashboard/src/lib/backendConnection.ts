@@ -4,8 +4,9 @@ import { request } from './backend';
 
 export interface Webhook {
   event: string;
-  /** ok: active · failing: Open Dental can't deliver · missing: not set up · off: can't be set up yet · failed: setup error */
-  state: 'ok' | 'failing' | 'missing' | 'off' | 'failed';
+  /** ok: active · failing: Open Dental can't deliver · missing: not set up · off: can't be set up yet · failed: setup error
+   *  · unsupported: this Open Dental version doesn't have the event */
+  state: 'ok' | 'failing' | 'missing' | 'off' | 'failed' | 'unsupported';
   detail: string;
 }
 
@@ -99,9 +100,12 @@ export function webhookSummary(webhooks: Webhook[]): { tone: 'ok' | 'warn' | 'of
   if (!webhooks.length) return { tone: 'off', text: 'Not checked yet' };
   if (webhooks.every((w) => w.state === 'off')) return { tone: 'off', text: webhooks[0]!.detail };
   const ok = webhooks.filter((w) => w.state === 'ok').length;
-  return ok === webhooks.length
-    ? { tone: 'ok', text: `All ${ok} webhooks active` }
-    : { tone: 'warn', text: `${ok} of ${webhooks.length} webhooks active` };
+  const unsupported = webhooks.filter((w) => w.state === 'unsupported').length;
+  const offered = webhooks.length - unsupported;
+  const note = unsupported ? ` · ${unsupported} not offered by this Open Dental version` : '';
+  return ok === offered
+    ? { tone: 'ok', text: `All ${ok} webhooks active${note}` }
+    : { tone: 'warn', text: `${ok} of ${offered} webhooks active${note}` };
 }
 
 /** "AppointmentDeleted" -> "Appointment deleted". */

@@ -156,6 +156,8 @@ class ReconciliationSyncServicePatientsTest {
         PatientRepository patientRepository = mock(PatientRepository.class);
         when(patientRepository.findByIdClinicId(eq(clinicId)))
                 .thenReturn(List.of(storedUnchanged, storedChanged));
+        // Stored rows are looked up page by page.
+        when(patientRepository.findAllById(any())).thenReturn(List.of(storedUnchanged, storedChanged));
 
         ReconciliationSyncService service = new ReconciliationSyncService(
                 mock(ClinicRepository.class), patientRepository,

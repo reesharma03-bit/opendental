@@ -33,8 +33,20 @@ export interface SyncStatus {
   coreTable?: string | null;
   /** Inside the current step: records read so far, and patients (or parents) done of all. */
   stepRecords?: number;
+  /** In the core-tables step: rows of the current table written to SmileOS's database so far. */
+  stepWritten?: number;
   parentsDone?: number | null;
   parentsTotal?: number | null;
+}
+
+/** "procedurelogs: 45,000 read from Open Dental · 12,000 saved" while a core table is copied; '' otherwise. */
+export function coreTableProgress(status: Pick<SyncStatus, 'coreTable' | 'stepRecords' | 'stepWritten'>, withTable = true): string {
+  if (!status.coreTable) return '';
+  const read = status.stepRecords ?? 0;
+  const written = status.stepWritten ?? 0;
+  const parts = [read ? `${read.toLocaleString()} read from Open Dental` : 'reading from Open Dental', written ? `${written.toLocaleString()} saved` : ''];
+  const text = parts.filter(Boolean).join(' · ');
+  return withTable ? `${status.coreTable}: ${text}` : text;
 }
 
 /** The current clinic; {@code all} (Admins only) every clinic at once. */

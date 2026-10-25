@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, CircleAlert, LoaderCircle } from 'lucide-react';
-import { getSyncActivity, groupSyncable, syncLabel, type SyncActivity, type SyncTableActivity } from '../lib/backendSync';
+import { coreTableProgress, getSyncActivity, groupSyncable, syncLabel, type SyncActivity, type SyncTableActivity } from '../lib/backendSync';
 
 const card = 'rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6';
 
@@ -83,7 +83,9 @@ export default function SyncActivityCard() {
     ? (full.coreTable ? `${CORE_LABELS[full.coreTable] ?? syncLabel(groups, full.coreTable)} (core tables)` : 'patients, appointments, procedures and documents')
     : (CORE_LABELS[stepName] ?? syncLabel(groups, stepName));
   const unit = stepName && (activity.tables.find((t) => t.name === stepName)?.kind === 'per-patient') ? 'patients / records' : '';
-  const inStep = full.state === 'running' && !coreStep
+  const inStep = full.state === 'running' && coreStep
+    ? coreTableProgress(full, false)
+    : full.state === 'running'
     ? [full.parentsTotal ? `${(full.parentsDone ?? 0).toLocaleString()} of ${full.parentsTotal.toLocaleString()} ${unit.startsWith('patients') ? 'patients' : 'records'} read` : '',
       full.stepRecords ? `${full.stepRecords.toLocaleString()} rows so far` : ''].filter(Boolean).join(' · ')
     : '';

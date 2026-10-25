@@ -106,7 +106,7 @@ public class OpenDentalClient {
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(resolveBaseUrl(clinicBaseUrl) + path);
         params.forEach(builder::queryParam);
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
-        return restTemplate.exchange(builder.toUriString(), HttpMethod.GET, entity, JsonNode.class).getBody();
+        return restTemplate.exchange(builder.build().encode().toUri(), HttpMethod.GET, entity, JsonNode.class).getBody();
     }
 
     /** Raw POST / PUT / DELETE for resources without a typed DTO. The body Open Dental returns may be empty. */
@@ -141,7 +141,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<PatientSimpleResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<PatientSimpleResponse>>() {});
@@ -159,7 +159,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<PatientResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 PATIENT_LIST);
@@ -174,7 +174,7 @@ public class OpenDentalClient {
 
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         ResponseEntity<List<PatientResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 entity,
                 PATIENT_LIST);
@@ -271,7 +271,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<AppointmentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 APPOINTMENT_LIST);
@@ -286,7 +286,7 @@ public class OpenDentalClient {
 
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         ResponseEntity<List<AppointmentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 entity,
                 APPOINTMENT_LIST);
@@ -305,7 +305,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<AppointmentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<AppointmentResponse>>() {});
@@ -324,7 +324,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<SlotResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<SlotResponse>>() {});
@@ -343,7 +343,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<SlotResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<SlotResponse>>() {});
@@ -362,7 +362,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<AppointmentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<AppointmentResponse>>() {});
@@ -549,7 +549,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<ProcedureLogResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 PROCEDURE_LOG_LIST);
@@ -564,7 +564,7 @@ public class OpenDentalClient {
 
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         ResponseEntity<List<ProcedureLogResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 entity,
                 PROCEDURE_LOG_LIST);
@@ -584,7 +584,7 @@ public class OpenDentalClient {
                 .queryParam("InsSubNum", insSubNum);
 
         ResponseEntity<List<InsuranceHistoryResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<InsuranceHistoryResponse>>() {});
@@ -603,7 +603,7 @@ public class OpenDentalClient {
                 .queryParam("PatNum", patNum);
 
         ResponseEntity<List<GroupNoteResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 new ParameterizedTypeReference<List<GroupNoteResponse>>() {});
@@ -759,7 +759,7 @@ public class OpenDentalClient {
         HttpEntity<ShortQueryRequest> entity = new HttpEntity<>(request);
 
         ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.PUT,
                 entity,
                 new ParameterizedTypeReference<List<Map<String, Object>>>() {});
@@ -857,7 +857,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<DocumentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 DOCUMENT_LIST);
@@ -872,7 +872,7 @@ public class OpenDentalClient {
 
         HttpEntity<Void> entity = new HttpEntity<>(buildAuthHeaders(apiKey));
         ResponseEntity<List<DocumentResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 entity,
                 DOCUMENT_LIST);
@@ -1027,7 +1027,7 @@ public class OpenDentalClient {
         params.forEach(builder::queryParam);
 
         ResponseEntity<List<PatFieldResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 null,
                 PAT_FIELD_LIST);
@@ -1044,7 +1044,7 @@ public class OpenDentalClient {
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(params, headers);
 
         ResponseEntity<List<PatFieldResponse>> response = restTemplate.exchange(
-                builder.toUriString(),
+                builder.build().encode().toUri(),
                 HttpMethod.GET,
                 entity,
                 PAT_FIELD_LIST);
@@ -1082,7 +1082,7 @@ public class OpenDentalClient {
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(params, headers);
 
         ResponseEntity<List<ProviderResponse>> response = restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, entity, PROVIDER_LIST);
+                builder.build().encode().toUri(), HttpMethod.GET, entity, PROVIDER_LIST);
         return response.getBody();
     }
 
@@ -1096,7 +1096,7 @@ public class OpenDentalClient {
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(params, headers);
 
         ResponseEntity<List<OperatoryResponse>> response = restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, entity, OPERATORY_LIST);
+                builder.build().encode().toUri(), HttpMethod.GET, entity, OPERATORY_LIST);
         return response.getBody();
     }
 
@@ -1110,7 +1110,7 @@ public class OpenDentalClient {
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(params, headers);
 
         ResponseEntity<List<ScheduleResponse>> response = restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, entity, SCHEDULE_LIST);
+                builder.build().encode().toUri(), HttpMethod.GET, entity, SCHEDULE_LIST);
         return response.getBody();
     }
 
@@ -1124,7 +1124,7 @@ public class OpenDentalClient {
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(params, headers);
 
         ResponseEntity<List<ToothInitialResponse>> response = restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, entity, TOOTH_INITIAL_LIST);
+                builder.build().encode().toUri(), HttpMethod.GET, entity, TOOTH_INITIAL_LIST);
         return response.getBody();
     }
 
@@ -1137,7 +1137,7 @@ public class OpenDentalClient {
                 resolveBaseUrl(null) + "/allergies");
         params.forEach(builder::queryParam);
         return restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
+                builder.build().encode().toUri(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
     }
 
     public Map<String, Object> getAllergy(Long allergyNum) {
@@ -1181,7 +1181,7 @@ public class OpenDentalClient {
                 resolveBaseUrl(null) + "/allergydefs");
         params.forEach(builder::queryParam);
         return restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
+                builder.build().encode().toUri(), HttpMethod.GET, null, ALLERGY_LIST).getBody();
     }
 
     public Map<String, Object> getAllergyDef(Long allergyDefNum) {
@@ -1214,7 +1214,7 @@ public class OpenDentalClient {
                 resolveBaseUrl(null) + "/diseasedefs");
         params.forEach(builder::queryParam);
         return restTemplate.exchange(
-                builder.toUriString(), HttpMethod.GET, null, DISEASE_DEF_LIST).getBody();
+                builder.build().encode().toUri(), HttpMethod.GET, null, DISEASE_DEF_LIST).getBody();
     }
 
     public Map<String, Object> getDiseaseDef(Long diseaseDefNum) {

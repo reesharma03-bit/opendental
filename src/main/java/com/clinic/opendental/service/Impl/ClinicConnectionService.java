@@ -759,7 +759,9 @@ public class ClinicConnectionService {
                     result.add(stateOf(want.event(), found, !changes.isEmpty()));
                 }
             } catch (HttpStatusCodeException e) {
-                result.add(new Webhook(want.event(), "failed", explain(e)));
+                result.add(unsupported(e)
+                        ? new Webhook(want.event(), "unsupported", UNSUPPORTED)
+                        : new Webhook(want.event(), "failed", explain(e)));
             } catch (Exception e) {
                 result.add(new Webhook(want.event(), "failed", e.getMessage()));
             }
@@ -767,6 +769,17 @@ public class ClinicConnectionService {
         recordCheck(clinic, result);
         refreshMirror(clinic);
         return result;
+    }
+
+    static final String UNSUPPORTED = "This practice's Open Dental version doesn't offer this event yet. "
+            + "SmileOS sets it up by itself after the practice updates Open Dental; until then these changes arrive through the regular sync.";
+
+    /** Open Dental refuses a watch table or UI event its version doesn't have: 400 "WatchTable is invalid." */
+    static boolean unsupported(HttpStatusCodeException e) {
+        if (e.getStatusCode().value() != 400) return false;
+        String body = e.getResponseBodyAsString();
+        String lower = body == null ? "" : body.toLowerCase(Locale.ROOT);
+        return lower.contains("watchtable is invalid") || lower.contains("uieventtype is invalid");
     }
 
     /** POST, saying "every computer" the way this Open Dental version understands it. */
@@ -798,7 +811,7 @@ public class ClinicConnectionService {
         for (Clinic clinic : clinics.findByIsActiveTrue()) {
             try {
                 List<Webhook> result = setUpWebhooks(clinic);
-                long bad = result.stream().filter(w -> !"ok".equals(w.state())).count();
+                long bad = result.stream().filter(w -> !"ok".equals(w.state()) && !"unsupported".equals(w.state())).count();
                 if (bad > 0) log.warn("{} webhook subscription(s) of {} need attention", bad, clinic.getClinicCode());
                 else log.info("Webhook subscriptions of {} are in place ({})", clinic.getClinicCode(), result.size());
             } catch (Exception e) {

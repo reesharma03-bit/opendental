@@ -6,14 +6,25 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.dto.appointment.AppointmentResponse;
@@ -60,6 +71,8 @@ import com.clinic.opendental.repository.ref.ProviderRepository;
 import com.clinic.opendental.repository.ref.ScheduleRepository;
 import com.clinic.opendental.repository.ref.ToothInitialRepository;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -97,6 +110,13 @@ public class ReconciliationSyncService {
     /** Optional so unit tests that build this service by hand need not supply it. */
     @Autowired(required = false)
     private OdSyncTaskRepository odSyncTaskRepository;
+
+    /** Batched writes (see {@link RowWriter}); absent in unit tests, which then save row by row. */
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -168,64 +188,37 @@ public class ReconciliationSyncService {
 
     /** As {@link #reconcileClinic(Clinic)}, for the tables {@code include} accepts (clinics always). */
     public ReconciliationResult reconcileClinic(Clinic clinic, java.util.function.Predicate<String> include) {
+        return reconcileClinic(clinic, include, (table, stats) -> { });
+    }
+
+    /**
+     * As above; {@code finished} is told each table once it is done, so a stopped sync
+     * ({@link SyncStoppedException}) can continue with the tables it hadn't finished.
+     */
+    public ReconciliationResult reconcileClinic(Clinic clinic, java.util.function.Predicate<String> include,
+                                                BiConsumer<String, Stats> finished) {
         Stats total = new Stats();
 
         Stats clinics = reconcileClinics(clinic);
         logSummary("clinics", clinic, clinics);
         total.add(clinics);
 
-        if (include.test("patients")) {
-            Stats patients = reconcilePatients(clinic);
-            logSummary("patients", clinic, patients);
-            total.add(patients);
-        }
-
-        if (include.test("appointments")) {
-            Stats appointments = reconcileAppointments(clinic);
-            logSummary("appointments", clinic, appointments);
-            total.add(appointments);
-        }
-
-        if (include.test("documents")) {
-            Stats documents = reconcileDocuments(clinic);
-            logSummary("documents", clinic, documents);
-            total.add(documents);
-        }
-
-        if (include.test("procedurelogs")) {
-            Stats procedureLogs = reconcileProcedureLogs(clinic);
-            logSummary("procedurelogs", clinic, procedureLogs);
-            total.add(procedureLogs);
-        }
-
-        if (include.test("patfields")) {
-            Stats patFields = reconcilePatFields(clinic);
-            logSummary("patfields", clinic, patFields);
-            total.add(patFields);
-        }
-
-        if (include.test("schedules")) {
-            Stats schedules = reconcileSchedules(clinic);
-            logSummary("schedules", clinic, schedules);
-            total.add(schedules);
-        }
-
-        if (include.test("toothinitials")) {
-            Stats toothInitials = reconcileToothInitials(clinic);
-            logSummary("toothinitials", clinic, toothInitials);
-            total.add(toothInitials);
-        }
-
-        if (include.test("providers")) {
-            Stats providers = reconcileProviders(clinic);
-            logSummary("providers", clinic, providers);
-            total.add(providers);
-        }
-
-        if (include.test("operatories")) {
-            Stats operatories = reconcileOperatories(clinic);
-            logSummary("operatories", clinic, operatories);
-            total.add(operatories);
+        Map<String, Supplier<Stats>> tables = new LinkedHashMap<>();
+        tables.put("patients", () -> reconcilePatients(clinic));
+        tables.put("appointments", () -> reconcileAppointments(clinic));
+        tables.put("documents", () -> reconcileDocuments(clinic));
+        tables.put("procedurelogs", () -> reconcileProcedureLogs(clinic));
+        tables.put("patfields", () -> reconcilePatFields(clinic));
+        tables.put("schedules", () -> reconcileSchedules(clinic));
+        tables.put("toothinitials", () -> reconcileToothInitials(clinic));
+        tables.put("providers", () -> reconcileProviders(clinic));
+        tables.put("operatories", () -> reconcileOperatories(clinic));
+        for (Map.Entry<String, Supplier<Stats>> table : tables.entrySet()) {
+            if (!include.test(table.getKey())) continue;
+            Stats stats = table.getValue().get();
+            logSummary(table.getKey(), clinic, stats);
+            total.add(stats);
+            finished.accept(table.getKey(), stats);
         }
 
         String message = String.format(
@@ -240,75 +233,227 @@ public class ReconciliationSyncService {
     // Per-entity reconciliation (difference detection)
     // ========================================================================
 
-    @SuppressWarnings("null")
-    private Stats reconcileClinics(Clinic clinic) {
+    /**
+     * How one table is reconciled by {@link #reconcile}.
+     *
+     * @param table      the core table's name in Sync settings (and where a stopped sync continues)
+     * @param entity     name in log lines, e.g. "procedurelog"
+     * @param plural     name in summary lines, e.g. "procedure logs"
+     * @param idLabel    Open Dental's key, e.g. "ProcNum"
+     * @param idField    that key in the entity's embedded id, e.g. "procNum"
+     * @param stamp      the record's DateTStamp (change pulls resume from the newest); null when none
+     * @param queueType  od_sync_queue type whose waiting local changes are not overwritten; null when none
+     * @param softDelete marks a row deleted in Open Dental (true when it changed it); null: only reported
+     * @param allRows    every stored row of a clinic; only used without an EntityManager (unit tests)
+     * @param parents    rows a record must refer to (its patient, its appointment), checked per page
+     */
+    record Table<D, E, I>(String table, String entity, String plural, String idLabel, Class<E> type, String idField,
+                          Function<D, Long> dtoId, Function<D, String> stamp, BiFunction<UUID, Long, I> key,
+                          BiFunction<D, UUID, E> toEntity, Function<E, Long> rowId, Function<E, String> signature,
+                          CrudRepository<E, I> repository, Function<UUID, List<E>> allRows, String queueType,
+                          java.util.function.Predicate<E> softDelete, List<Parent<E>> parents) {
+        Table {
+            parents = parents == null ? List.of() : parents;
+        }
+    }
+
+    /**
+     * A row a record refers to by foreign key. A record whose parent isn't stored (its screen isn't
+     * synced, or it hasn't arrived yet) would fail its whole batch: an optional link ({@code clear})
+     * is saved empty and filled in by a later sync once the parent is there; a required one skips
+     * the record.
+     */
+    record Parent<E>(String name, Class<?> type, String idField, Function<E, Long> ref, Consumer<E> clear) {
+    }
+
+    /** Hands {@link #reconcile} the records page by page, from row {@code start} on. */
+    interface Pages<D> {
+        void read(int start, Consumer<List<D>> page, Stats stats);
+    }
+
+    /** A paged Open Dental list. */
+    private static <D> Pages<D> paged(Map<String, String> params, Function<Map<String, String>, List<D>> fetch) {
+        return (start, page, stats) -> fetchPages(params, start, fetch, page);
+    }
+
+    /** Records already read (a change pull's list, or an endpoint without paging). */
+    private static <D> Pages<D> given(Supplier<List<D>> records) {
+        return (start, page, stats) -> {
+            List<D> list = records.get();
+            if (list != null && !list.isEmpty()) page.accept(list);
+        };
+    }
+
+    /**
+     * Reconciles one table page by page: each page of Open Dental records is compared with the
+     * stored rows of the same ids and written right away, so memory holds one page (plus the ids
+     * seen) however large the practice. With {@code full}, rows stored but no longer in Open Dental
+     * are then reported stale (or soft-deleted). A Force Sync stopped part-way continues after the
+     * last page it wrote.
+     */
+    private <D, E, I> Stats reconcile(Clinic clinic, Table<D, E, I> t, Pages<D> pages, boolean full) {
         Stats stats = new Stats();
+        RowWriter<E> writer = writer(t.entity(), clinic, stats, t.repository(), t.rowId());
+        CoreProgress progress = progress();
+        int start = full && progress != null ? progress.startAt(t.table()) : 0;
+        Set<Long> seen = new HashSet<>();
+        Set<Long> queued = t.queueType() == null ? Set.of() : queuedLocalIds(clinic.getId(), t.queueType());
+        int[] read = {0};
         try {
-            List<ClinicResponse> dtos = client.getClinics(clinic.getBaseUrl(), clinic.getApiKey());
-            Map<Long, ClinicResponse> byId = new HashMap<>();
-            for (ClinicResponse dto : dtos) {
-                if (byId.put(dto.getClinicNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate Open Dental clinic ClinicNum={} returned for installation {}",
-                            dto.getClinicNum(), clinic.getClinicCode());
-                }
+            pages.read(start, page -> {
+                read[0] += page.size();
+                if (progress != null) progress.read = start + read[0];
+                savePage(clinic, t, page, seen, queued, writer, stats);
+                writer.commit();
+                if (progress != null) progress.done = start + read[0];
+            }, stats);
+            writer.commit();
+            if (full && start == 0) {
+                markStale(clinic, t, seen, stats);
+            } else if (start > 0) {
+                log.info("{} of clinic {} continued after row {}; records deleted in Open Dental are found on the next full sync",
+                        t.plural(), clinic.getClinicCode(), start);
             }
-            List<OdClinic> existing = odClinicRepository.findByIdClinicId(clinic.getId());
-            Map<Long, OdClinic> existingById = new HashMap<>();
-            for (OdClinic c : existing) {
-                if (existingById.put(c.getId().getClinicNum(), c) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate Open Dental clinic ClinicNum={} found in Supabase for installation {}",
-                            c.getId().getClinicNum(), clinic.getClinicCode());
-                }
-            }
-            for (ClinicResponse dto : dtos) {
-                Long clinicNum = null;
-                try {
-                    clinicNum = dto.getClinicNum();
-                    if (clinicNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping clinic with null ClinicNum returned by Open Dental for installation {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    OdClinic stored = existingById.get(clinicNum);
-                    if (stored == null) {
-                        odClinicRepository.save(toOdClinicEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("clinic", clinicNum, clinic, "INSERT (missing)");
-                    } else {
-                        OdClinic incoming = toOdClinicEntity(dto, clinic.getId());
-                        if (clinicSignature(stored).equals(clinicSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            odClinicRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("clinic", clinicNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile Open Dental clinic {} from installation {}: {}",
-                            clinicNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (OdClinic c : existing) {
-                if (!byId.containsKey(c.getId().getClinicNum())) {
-                    stats.stale++;
-                    log.warn("Stale Open Dental clinic ClinicNum={} present in Supabase but missing from Open Dental (installation {})",
-                            c.getId().getClinicNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} Open Dental clinics from installation {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
+            log.info("Reconciled {} {} from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
+                    start + read[0], t.plural(), clinic.getClinicCode(), stats.inserted, stats.updated,
                     stats.unchanged, stats.stale, stats.duplicates);
+        } catch (SyncStoppedException e) {
+            throw e;
         } catch (Exception e) {
             stats.failed++;
-            log.error("Failed to fetch Open Dental clinics from installation {}: {}",
-                    clinic.getClinicCode(), e.getMessage());
+            log.error("Failed to fetch {} from clinic {}: {}", t.plural(), clinic.getClinicCode(), e.getMessage());
         }
         return stats;
+    }
+
+    private <D, E, I> void savePage(Clinic clinic, Table<D, E, I> t, List<D> page, Set<Long> seen, Set<Long> queued,
+                                    RowWriter<E> writer, Stats stats) {
+        UUID clinicId = clinic.getId();
+        Map<Long, E> incoming = new LinkedHashMap<>();
+        for (D dto : page) {
+            Long id = null;
+            try {
+                id = t.dtoId().apply(dto);
+                if (t.stamp() != null) stats.seen(t.stamp().apply(dto));
+                // A record with no usable key (e.g. a field-casing mismatch swallowing it) would
+                // violate NOT NULL on insert, or look "changed" and overwrite an existing row.
+                if (id == null) {
+                    stats.failed++;
+                    log.warn("Skipping {} with null {} returned by Open Dental for clinic {} (cannot insert/update without a primary key)",
+                            t.entity(), t.idLabel(), clinic.getClinicCode());
+                    continue;
+                }
+                if (!seen.add(id)) {
+                    stats.duplicates++;
+                    log.warn("Duplicate {} {}={} returned by Open Dental for clinic {}", t.entity(), t.idLabel(), id, clinic.getClinicCode());
+                    continue;
+                }
+                if (queued.contains(id)) {
+                    // A local change is still waiting to reach Open Dental; don't overwrite it.
+                    stats.unchanged++;
+                    continue;
+                }
+                incoming.put(id, t.toEntity().apply(dto, clinicId));
+            } catch (Exception e) {
+                stats.failed++;
+                log.error("Failed to reconcile {} {} from clinic {}: {}", t.entity(), id, clinic.getClinicCode(), e.getMessage());
+            }
+        }
+        checkParents(clinic, t, incoming, stats);
+        Map<Long, E> stored = new HashMap<>();
+        for (E row : t.repository().findAllById(incoming.keySet().stream().map(id -> t.key().apply(clinicId, id)).toList())) {
+            stored.put(t.rowId().apply(row), row);
+        }
+        incoming.forEach((id, row) -> {
+            E current = stored.get(id);
+            if (current == null) {
+                writer.insert(row);
+            } else if (t.signature().apply(current).equals(t.signature().apply(row))) {
+                stats.unchanged++;
+            } else {
+                writer.update(row);
+            }
+        });
+    }
+
+    /** Drops (or unlinks) records whose patient or appointment isn't stored; one query per parent per page. */
+    private <D, E, I> void checkParents(Clinic clinic, Table<D, E, I> t, Map<Long, E> incoming, Stats stats) {
+        if (entityManager == null || incoming.isEmpty()) return;
+        for (Parent<E> parent : t.parents()) {
+            List<Long> refs = incoming.values().stream().map(parent.ref()).filter(java.util.Objects::nonNull).distinct().toList();
+            if (refs.isEmpty()) continue;
+            Set<Long> present = new HashSet<>(entityManager.createQuery("select e.id." + parent.idField() + " from "
+                            + parent.type().getSimpleName() + " e where e.id.clinicId = :clinic and e.id." + parent.idField()
+                            + " in :refs", Long.class)
+                    .setParameter("clinic", clinic.getId())
+                    .setParameter("refs", refs)
+                    .getResultList());
+            int unlinked = 0;
+            for (java.util.Iterator<Map.Entry<Long, E>> it = incoming.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<Long, E> entry = it.next();
+                Long ref = parent.ref().apply(entry.getValue());
+                if (ref == null || present.contains(ref)) continue;
+                if (parent.clear() != null) {
+                    parent.clear().accept(entry.getValue());
+                    unlinked++;
+                } else {
+                    it.remove();
+                    stats.failed++;
+                    log.warn("Skipping {} {}={} for clinic {}: its {} {} isn't in SmileOS yet (is its screen synced?)",
+                            t.entity(), t.idLabel(), entry.getKey(), clinic.getClinicCode(), parent.name(), ref);
+                }
+            }
+            if (unlinked > 0) {
+                log.info("{} {} of clinic {} saved without their {} for now: it isn't in SmileOS yet (a later sync links them)",
+                        unlinked, t.plural(), clinic.getClinicCode(), parent.name());
+            }
+        }
+    }
+
+    /** Rows stored but no longer in Open Dental: reported, or soft-deleted where the table keeps deletions. */
+    private <D, E, I> void markStale(Clinic clinic, Table<D, E, I> t, Set<Long> seen, Stats stats) {
+        for (Long id : storedIds(clinic, t)) {
+            if (seen.contains(id)) continue;
+            stats.stale++;
+            if (t.softDelete() == null) {
+                log.warn("Stale {} {}={} present in Supabase but missing from Open Dental (clinic {})",
+                        t.entity(), t.idLabel(), id, clinic.getClinicCode());
+                continue;
+            }
+            E row = t.repository().findById(t.key().apply(clinic.getId(), id)).orElse(null);
+            if (row != null && t.softDelete().test(row)) {
+                t.repository().save(row);
+                logReconciled(t.entity(), id, clinic, "SOFT-DELETE (missing in Open Dental)");
+            } else {
+                log.warn("Stale {} {}={} already soft-deleted (clinic {})", t.entity(), t.idLabel(), id, clinic.getClinicCode());
+            }
+        }
+    }
+
+    /** Only the ids of the clinic's stored rows (not whole rows: a large practice has hundreds of thousands). */
+    private <D, E, I> List<Long> storedIds(Clinic clinic, Table<D, E, I> t) {
+        if (entityManager == null) {
+            return t.allRows().apply(clinic.getId()).stream().map(t.rowId()).toList();
+        }
+        return entityManager.createQuery("select e.id." + t.idField() + " from " + t.type().getSimpleName()
+                        + " e where e.id.clinicId = :clinic", Long.class)
+                .setParameter("clinic", clinic.getId())
+                .getResultList();
+    }
+
+    private static <E> java.util.function.Predicate<E> softDelete(Function<E, Boolean> isDeleted, Consumer<E> markDeleted) {
+        return row -> {
+            if (Boolean.TRUE.equals(isDeleted.apply(row))) return false;
+            markDeleted.accept(row);
+            return true;
+        };
+    }
+
+    private Stats reconcileClinics(Clinic clinic) {
+        return reconcile(clinic, new Table<>("clinics", "clinic", "Open Dental clinics", "ClinicNum", OdClinic.class, "clinicNum",
+                ClinicResponse::getClinicNum, null, OdClinicId::new, this::toOdClinicEntity, c -> c.getId().getClinicNum(),
+                this::clinicSignature, odClinicRepository, odClinicRepository::findByIdClinicId, null, null, null),
+                given(() -> client.getClinics(clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
 
     private Stats reconcilePatients(Clinic clinic) {
@@ -317,162 +462,28 @@ public class ReconciliationSyncService {
 
     /**
      * Full read when {@code changed} is null; otherwise only those patients (a change pull):
-     * then only their stored rows are loaded and nothing is reported stale.
+     * then nothing is reported stale.
      */
     Stats reconcilePatients(Clinic clinic, List<PatientResponse> changed) {
-        Stats stats = new Stats();
-        try {
-            List<PatientResponse> dtos = changed != null ? changed
-                    : fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, PatientResponse> byId = new HashMap<>();
-            for (PatientResponse dto : dtos) {
-                if (byId.put(dto.getPatNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate patient PatNum={} returned by Open Dental for clinic {}",
-                            dto.getPatNum(), clinic.getClinicCode());
-                }
-            }
-            List<Patient> existing = changed != null
-                    ? patientRepository.findAllById(dtos.stream().filter(d -> d.getPatNum() != null)
-                            .map(d -> new PatientId(clinic.getId(), d.getPatNum())).toList())
-                    : patientRepository.findByIdClinicId(clinic.getId());
-            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PATIENT);
-            Map<Long, Patient> existingById = new HashMap<>();
-            for (Patient p : existing) {
-                if (existingById.put(p.getId().getPatNum(), p) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate patient PatNum={} found in Supabase for clinic {}",
-                            p.getId().getPatNum(), clinic.getClinicCode());
-                }
-            }
-            for (PatientResponse dto : dtos) {
-                Long patNum = null;
-                try {
-                    patNum = dto.getPatNum();
-                    // Guard against a source record with no usable primary key
-                    // (e.g. a field-casing mismatch swallowing PatNum). Without this,
-                    // a null pat_num would either violate the NOT NULL constraint on
-                    // insert, or look "changed" and blindly overwrite an existing row.
-                    if (patNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping patient with null PatNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    if (queued.contains(patNum)) {
-                        // A local change is still waiting to reach Open Dental; don't overwrite it.
-                        stats.unchanged++;
-                        continue;
-                    }
-                    Patient stored = existingById.get(patNum);
-                    if (stored == null) {
-                        patientRepository.save(toPatientEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("patient", patNum, clinic, "INSERT (missing)");
-                    } else {
-                        Patient incoming = toPatientEntity(dto, clinic.getId());
-                        if (patientSignature(stored).equals(patientSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            patientRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("patient", patNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile patient {} from clinic {}: {}",
-                            patNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Patient p : changed != null ? List.<Patient>of() : existing) {
-                if (!byId.containsKey(p.getId().getPatNum())) {
-                    stats.stale++;
-                    log.warn("Stale patient PatNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            p.getId().getPatNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} patients from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch patients from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        Table<PatientResponse, Patient, PatientId> patients = new Table<>("patients", "patient", "patients", "PatNum",
+                Patient.class, "patNum", PatientResponse::getPatNum, null, PatientId::new, this::toPatientEntity,
+                p -> p.getId().getPatNum(), this::patientSignature, patientRepository, patientRepository::findByIdClinicId,
+                OdSyncService.PATIENT, null, null);
+        return changed != null
+                ? reconcile(clinic, patients, given(() -> changed), false)
+                : reconcile(clinic, patients, paged(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
 
     private Stats reconcilePatFields(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-            List<PatFieldResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getPatFields(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, PatFieldResponse> byId = new HashMap<>();
-            for (PatFieldResponse dto : dtos) {
-                if (byId.put(dto.getPatFieldNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate pat_field PatFieldNum={} returned by Open Dental for clinic {}", dto.getPatFieldNum(), clinic.getClinicCode());
-                }
-            }
-            List<PatField> existing = patFieldRepository.findByIdClinicId(clinic.getId());
-            Map<Long, PatField> existingById = new HashMap<>();
-            for (PatField p : existing) {
-                if (existingById.put(p.getId().getPatFieldNum(), p) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate pat_field PatFieldNum={} found in Supabase for clinic {}", p.getId().getPatFieldNum(), clinic.getClinicCode());
-                }
-            }
-            for (PatFieldResponse dto : dtos) {
-                Long patFieldNum = null;
-                try {
-                    patFieldNum = dto.getPatFieldNum();
-                    if (patFieldNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping pat_field with null PatFieldNum returned by Open Dental for clinic {} (cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    PatField stored = existingById.get(patFieldNum);
-                    if (stored == null) {
-                        patFieldRepository.save(toPatFieldEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("pat_field", patFieldNum, clinic, "INSERT (missing)");
-                    } else {
-                        PatField incoming = toPatFieldEntity(dto, clinic.getId());
-                        if (patFieldSignature(stored).equals(patFieldSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            patFieldRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("pat_field", patFieldNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile pat_field {} from clinic {}: {}", patFieldNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (PatField p : existing) {
-                if (!byId.containsKey(p.getId().getPatFieldNum())) {
-                    stats.stale++;
-                    // PatFieldDeleted reconciliation: a pat_field present in Supabase but
-                    // missing from Open Dental's current snapshot was deleted on the source.
-                    // Soft-delete it so a missed/duplicate delete webhook is reconciled.
-                    if (!Boolean.TRUE.equals(p.getIsDeleted())) {
-                        p.setIsDeleted(true);
-                        p.setDeletedAt(LocalDateTime.now());
-                        patFieldRepository.save(p);
-                        logReconciled("pat_field", p.getId().getPatFieldNum(), clinic, "SOFT-DELETE (missing in Open Dental)");
-                    } else {
-                        log.warn("Stale pat_field PatFieldNum={} already soft-deleted (clinic {})",
-                                p.getId().getPatFieldNum(), clinic.getClinicCode());
-                    }
-                }
-            }
-            log.info("Reconciled {} pat_fields from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)", dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated, stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch pat_fields from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("patfields", "pat_field", "pat_fields", "PatFieldNum", PatField.class, "patFieldNum",
+                PatFieldResponse::getPatFieldNum, null, PatFieldId::new, this::toPatFieldEntity, p -> p.getId().getPatFieldNum(),
+                this::patFieldSignature, patFieldRepository, patFieldRepository::findByIdClinicId, null,
+                // PatFieldDeleted: one missing from Open Dental was deleted there (a missed delete webhook).
+                softDelete(PatField::getIsDeleted, p -> {
+                    p.setIsDeleted(true);
+                    p.setDeletedAt(LocalDateTime.now());
+                }), null),
+                paged(new HashMap<>(), params -> client.getPatFields(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
 
     private Stats reconcileAppointments(Clinic clinic) {
@@ -481,185 +492,40 @@ public class ReconciliationSyncService {
 
     /** Full read with no filter; with one (DateTStamp) a change pull: see {@link #reconcilePatients(Clinic, List)}. */
     Stats reconcileAppointments(Clinic clinic, Map<String, String> filter) {
-        Stats stats = new Stats();
-        boolean changesOnly = !filter.isEmpty();
-        try {
-            List<AppointmentResponse> dtos = fetchAllPages(filter, params -> client.getAppointments(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            dtos.forEach(d -> stats.seen(d.getDateTStamp()));
-            Map<Long, AppointmentResponse> byId = new HashMap<>();
-            for (AppointmentResponse dto : dtos) {
-                if (byId.put(dto.getAptNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate appointment AptNum={} returned by Open Dental for clinic {}",
-                            dto.getAptNum(), clinic.getClinicCode());
-                }
-            }
-            List<Appointment> existing = changesOnly
-                    ? appointmentRepository.findAllById(dtos.stream().filter(d -> d.getAptNum() != null)
-                            .map(d -> new AppointmentId(clinic.getId(), d.getAptNum())).toList())
-                    : appointmentRepository.findByIdClinicId(clinic.getId());
-            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.APPOINTMENT);
-            Map<Long, Appointment> existingById = new HashMap<>();
-            for (Appointment a : existing) {
-                if (existingById.put(a.getId().getAptNum(), a) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate appointment AptNum={} found in Supabase for clinic {}",
-                            a.getId().getAptNum(), clinic.getClinicCode());
-                }
-            }
-            for (AppointmentResponse dto : dtos) {
-                Long aptNum = null;
-                try {
-                    aptNum = dto.getAptNum();
-                    if (aptNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping appointment with null AptNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    if (queued.contains(aptNum)) {
-                        // A local change is still waiting to reach Open Dental; don't overwrite it.
-                        stats.unchanged++;
-                        continue;
-                    }
-                    Appointment stored = existingById.get(aptNum);
-                    if (stored == null) {
-                        appointmentRepository.save(toAppointmentEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("appointment", aptNum, clinic, "INSERT (missing)");
-                    } else {
-                        Appointment incoming = toAppointmentEntity(dto, clinic.getId());
-                        if (appointmentSignature(stored).equals(appointmentSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            appointmentRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("appointment", aptNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile appointment {} from clinic {}: {}",
-                            aptNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Appointment a : changesOnly ? List.<Appointment>of() : existing) {
-                if (!byId.containsKey(a.getId().getAptNum())) {
-                    stats.stale++;
-                    log.warn("Stale appointment AptNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            a.getId().getAptNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} appointments from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch appointments from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("appointments", "appointment", "appointments", "AptNum", Appointment.class, "aptNum",
+                AppointmentResponse::getAptNum, AppointmentResponse::getDateTStamp, AppointmentId::new, this::toAppointmentEntity,
+                a -> a.getId().getAptNum(), this::appointmentSignature, appointmentRepository,
+                appointmentRepository::findByIdClinicId, OdSyncService.APPOINTMENT, null,
+                List.of(new Parent<>("patient", Patient.class, "patNum", Appointment::getPatNum, null))),
+                paged(filter, params -> client.getAppointments(params, clinic.getBaseUrl(), clinic.getApiKey())), filter.isEmpty());
     }
 
+    /**
+     * Open Dental's /documents endpoint is patient-scoped: it requires PatNum on every request
+     * (empty params -> 400 "PatNum is required"), so documents are read patient by patient.
+     */
     private Stats reconcileDocuments(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-                        // Open Dental's /documents endpoint is patient-scoped: it requires PatNum on
-            // every request (empty params -> 400 "PatNum is required"). Fetch documents for
-            // each patient in the clinic and merge them into a single deduped set.
-            List<DocumentResponse> dtos = new ArrayList<>();
-            Map<Long, DocumentResponse> byId = new HashMap<>();
-            List<PatientResponse> patients = fetchAllPages(Map.of(), params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            if (patients == null) {
-                patients = List.of();
-            }
-            for (PatientResponse patient : patients) {
-                Long patNum = patient.getPatNum();
-                if (patNum == null) {
-                    continue;
-                }
-                try {
-                    List<DocumentResponse> perPatient = fetchAllPages(
-                            Map.of("PatNum", String.valueOf(patNum)),
-                            params -> client.getDocuments(params, clinic.getBaseUrl(), clinic.getApiKey()));
-                    if (perPatient == null) {
-                        continue;
-                    }
-                    for (DocumentResponse dto : perPatient) {
-                        if (byId.put(dto.getDocNum(), dto) == null) {
-                            dtos.add(dto);
-                        } else {
-                            stats.duplicates++;
-                            log.warn("Duplicate document DocNum={} returned by Open Dental for clinic {}",
-                                    dto.getDocNum(), clinic.getClinicCode());
+        Pages<DocumentResponse> perPatient = (start, page, stats) -> fetchPages(Map.of(), 0,
+                params -> client.getPatients(params, clinic.getBaseUrl(), clinic.getApiKey()), patients -> {
+                    for (PatientResponse patient : patients) {
+                        Long patNum = patient.getPatNum();
+                        if (patNum == null) continue;
+                        try {
+                            fetchPages(Map.of("PatNum", String.valueOf(patNum)), 0,
+                                    params -> client.getDocuments(params, clinic.getBaseUrl(), clinic.getApiKey()), page);
+                        } catch (SyncStoppedException e) {
+                            throw e;
+                        } catch (Exception e) {
+                            stats.failed++;
+                            log.error("Failed to fetch documents for PatNum={} from clinic {}: {}", patNum, clinic.getClinicCode(), e.getMessage());
                         }
                     }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to fetch documents for PatNum={} from clinic {}: {}",
-                            patNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            List<Document> existing = documentRepository.findByIdClinicId(clinic.getId());
-            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.DOCUMENT);
-            Map<Long, Document> existingById = new HashMap<>();
-            for (Document d : existing) {
-                if (existingById.put(d.getId().getDocNum(), d) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate document DocNum={} found in Supabase for clinic {}",
-                            d.getId().getDocNum(), clinic.getClinicCode());
-                }
-            }
-            for (DocumentResponse dto : dtos) {
-                Long docNum = null;
-                try {
-                    docNum = dto.getDocNum();
-                    if (docNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping document with null DocNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    if (queued.contains(docNum)) {
-                        // A local change is still waiting to reach Open Dental; don't overwrite it.
-                        stats.unchanged++;
-                        continue;
-                    }
-                    Document stored = existingById.get(docNum);
-                    if (stored == null) {
-                        documentRepository.save(toDocumentEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("document", docNum, clinic, "INSERT (missing)");
-                    } else {
-                        Document incoming = toDocumentEntity(dto, clinic.getId());
-                        if (documentSignature(stored).equals(documentSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            documentRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("document", docNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile document {} from clinic {}: {}",
-                            docNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Document d : existing) {
-                if (!byId.containsKey(d.getId().getDocNum())) {
-                    stats.stale++;
-                    log.warn("Stale document DocNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            d.getId().getDocNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} documents from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch documents from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+                });
+        return reconcile(clinic, new Table<>("documents", "document", "documents", "DocNum", Document.class, "docNum",
+                DocumentResponse::getDocNum, null, DocumentId::new, this::toDocumentEntity, d -> d.getId().getDocNum(),
+                this::documentSignature, documentRepository, documentRepository::findByIdClinicId, OdSyncService.DOCUMENT, null,
+                List.of(new Parent<>("patient", Patient.class, "patNum", Document::getPatNum, null))),
+                perPatient, true);
     }
 
     private Stats reconcileProcedureLogs(Clinic clinic) {
@@ -668,393 +534,60 @@ public class ReconciliationSyncService {
 
     /** Full read with no filter; with one (DateTStamp) a change pull: see {@link #reconcilePatients(Clinic, List)}. */
     Stats reconcileProcedureLogs(Clinic clinic, Map<String, String> filter) {
-        Stats stats = new Stats();
-        boolean changesOnly = !filter.isEmpty();
-        try {
-            List<ProcedureLogResponse> dtos = fetchAllPages(filter, params -> client.getProcedureLogs(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            dtos.forEach(d -> stats.seen(d.getDateTStamp()));
-            Map<Long, ProcedureLogResponse> byId = new HashMap<>();
-            for (ProcedureLogResponse dto : dtos) {
-                if (byId.put(dto.getProcNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate procedurelog ProcNum={} returned by Open Dental for clinic {}",
-                            dto.getProcNum(), clinic.getClinicCode());
-                }
-            }
-            List<ProcedureLog> existing = changesOnly
-                    ? procedureLogRepository.findAllById(dtos.stream().filter(d -> d.getProcNum() != null)
-                            .map(d -> new ProcedureLogId(clinic.getId(), d.getProcNum())).toList())
-                    : procedureLogRepository.findByIdClinicId(clinic.getId());
-            Set<Long> queued = queuedLocalIds(clinic.getId(), OdSyncService.PROCEDURE_LOG);
-            Map<Long, ProcedureLog> existingById = new HashMap<>();
-            for (ProcedureLog pl : existing) {
-                if (existingById.put(pl.getId().getProcNum(), pl) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate procedurelog ProcNum={} found in Supabase for clinic {}",
-                            pl.getId().getProcNum(), clinic.getClinicCode());
-                }
-            }
-            for (ProcedureLogResponse dto : dtos) {
-                Long procNum = null;
-                try {
-                    procNum = dto.getProcNum();
-                    if (procNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping procedurelog with null ProcNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    if (queued.contains(procNum)) {
-                        // A local change is still waiting to reach Open Dental; don't overwrite it.
-                        stats.unchanged++;
-                        continue;
-                    }
-                    ProcedureLog stored = existingById.get(procNum);
-                    if (stored == null) {
-                        procedureLogRepository.save(toProcedureLogEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("procedurelog", procNum, clinic, "INSERT (missing)");
-                    } else {
-                        ProcedureLog incoming = toProcedureLogEntity(dto, clinic.getId());
-                        if (procedureLogSignature(stored).equals(procedureLogSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            procedureLogRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("procedurelog", procNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile procedurelog {} from clinic {}: {}",
-                            procNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (ProcedureLog pl : changesOnly ? List.<ProcedureLog>of() : existing) {
-                if (!byId.containsKey(pl.getId().getProcNum())) {
-                    stats.stale++;
-                    log.warn("Stale procedurelog ProcNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            pl.getId().getProcNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} procedure logs from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch procedure logs from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("procedurelogs", "procedurelog", "procedure logs", "ProcNum", ProcedureLog.class, "procNum",
+                ProcedureLogResponse::getProcNum, ProcedureLogResponse::getDateTStamp, ProcedureLogId::new, this::toProcedureLogEntity,
+                pl -> pl.getId().getProcNum(), this::procedureLogSignature, procedureLogRepository,
+                procedureLogRepository::findByIdClinicId, OdSyncService.PROCEDURE_LOG, null,
+                List.of(new Parent<>("patient", Patient.class, "patNum", ProcedureLog::getPatNum, null),
+                        new Parent<>("appointment", Appointment.class, "aptNum", ProcedureLog::getAptNum, pl -> pl.setAptNum(null)))),
+                paged(filter, params -> client.getProcedureLogs(params, clinic.getBaseUrl(), clinic.getApiKey())), filter.isEmpty());
     }
 
     Stats reconcileProviders(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-            List<ProviderResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, ProviderResponse> byId = new HashMap<>();
-            for (ProviderResponse dto : dtos) {
-                if (dto.getProvNum() == null) {
-                    continue;
-                }
-                if (byId.put(dto.getProvNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate provider ProvNum={} returned by Open Dental for clinic {}",
-                            dto.getProvNum(), clinic.getClinicCode());
-                }
-            }
-            List<Provider> existing = providerRepository.findByIdClinicId(clinic.getId());
-            Map<Long, Provider> existingById = new HashMap<>();
-            for (Provider p : existing) {
-                if (existingById.put(p.getId().getProvNum(), p) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate provider ProvNum={} found in Supabase for clinic {}",
-                            p.getId().getProvNum(), clinic.getClinicCode());
-                }
-            }
-            for (ProviderResponse dto : dtos) {
-                Long provNum = null;
-                try {
-                    provNum = dto.getProvNum();
-                    if (provNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping provider with null ProvNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    Provider stored = existingById.get(provNum);
-                    if (stored == null) {
-                        providerRepository.save(toProviderEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("provider", provNum, clinic, "INSERT (missing)");
-                    } else {
-                        Provider incoming = toProviderEntity(dto, clinic.getId());
-                        if (providerSignature(stored).equals(providerSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            providerRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("provider", provNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile provider {} from clinic {}: {}",
-                            provNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Provider p : existing) {
-                if (!byId.containsKey(p.getId().getProvNum())) {
-                    stats.stale++;
-                    log.warn("Stale provider ProvNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            p.getId().getProvNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} providers from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch providers from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("providers", "provider", "providers", "ProvNum", Provider.class, "provNum",
+                ProviderResponse::getProvNum, null, ProviderId::new, this::toProviderEntity, p -> p.getId().getProvNum(),
+                this::providerSignature, providerRepository, providerRepository::findByIdClinicId, null, null, null),
+                paged(new HashMap<>(), params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
+
     Stats reconcileOperatories(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-            List<OperatoryResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getOperatories(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, OperatoryResponse> byId = new HashMap<>();
-            for (OperatoryResponse dto : dtos) {
-                if (dto.getOperatoryNum() == null) {
-                    continue;
-                }
-                if (byId.put(dto.getOperatoryNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate operatory OperatoryNum={} returned by Open Dental for clinic {}",
-                            dto.getOperatoryNum(), clinic.getClinicCode());
-                }
-            }
-            List<Operatory> existing = operatoryRepository.findByIdClinicId(clinic.getId());
-            Map<Long, Operatory> existingById = new HashMap<>();
-            for (Operatory o : existing) {
-                if (existingById.put(o.getId().getOperatoryNum(), o) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate operatory OperatoryNum={} found in Supabase for clinic {}",
-                            o.getId().getOperatoryNum(), clinic.getClinicCode());
-                }
-            }
-            for (OperatoryResponse dto : dtos) {
-                Long operatoryNum = null;
-                try {
-                    operatoryNum = dto.getOperatoryNum();
-                    if (operatoryNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping operatory with null OperatoryNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    Operatory stored = existingById.get(operatoryNum);
-                    if (stored == null) {
-                        operatoryRepository.save(toOperatoryEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("operatory", operatoryNum, clinic, "INSERT (missing)");
-                    } else {
-                        Operatory incoming = toOperatoryEntity(dto, clinic.getId());
-                        if (operatorySignature(stored).equals(operatorySignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            operatoryRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("operatory", operatoryNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile operatory {} from clinic {}: {}",
-                            operatoryNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Operatory o : existing) {
-                if (!byId.containsKey(o.getId().getOperatoryNum())) {
-                    stats.stale++;
-                    log.warn("Stale operatory OperatoryNum={} present in Supabase but missing from Open Dental (clinic {})",
-                            o.getId().getOperatoryNum(), clinic.getClinicCode());
-                }
-            }
-            log.info("Reconciled {} operatories from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch operatories from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("operatories", "operatory", "operatories", "OperatoryNum", Operatory.class, "operatoryNum",
+                OperatoryResponse::getOperatoryNum, null, OperatoryId::new, this::toOperatoryEntity, o -> o.getId().getOperatoryNum(),
+                this::operatorySignature, operatoryRepository, operatoryRepository::findByIdClinicId, null, null, null),
+                paged(new HashMap<>(), params -> client.getOperatories(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
-/**
-     * Reconciles schedules. Covers both the Schedule upsert and ScheduleDeleted:
-     * any schedule row present in Supabase but missing from Open Dental's current
-     * snapshot is soft-deleted (is_deleted=true, deleted_at).
+
+    /**
+     * Reconciles schedules. Covers both the Schedule upsert and ScheduleDeleted: any schedule row
+     * present in Supabase but missing from Open Dental's current snapshot is soft-deleted.
      */
     Stats reconcileSchedules(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-            List<ScheduleResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getSchedules(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, ScheduleResponse> byId = new HashMap<>();
-            for (ScheduleResponse dto : dtos) {
-                if (dto.getScheduleNum() == null) {
-                    continue;
-                }
-                if (byId.put(dto.getScheduleNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate schedule ScheduleNum={} returned by Open Dental for clinic {}",
-                            dto.getScheduleNum(), clinic.getClinicCode());
-                }
-            }
-            List<Schedule> existing = scheduleRepository.findByIdClinicId(clinic.getId());
-            Map<Long, Schedule> existingById = new HashMap<>();
-            for (Schedule s : existing) {
-                if (existingById.put(s.getId().getScheduleNum(), s) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate schedule ScheduleNum={} found in Supabase for clinic {}",
-                            s.getId().getScheduleNum(), clinic.getClinicCode());
-                }
-            }
-            for (ScheduleResponse dto : dtos) {
-                Long scheduleNum = null;
-                try {
-                    scheduleNum = dto.getScheduleNum();
-                    if (scheduleNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping schedule with null ScheduleNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    Schedule stored = existingById.get(scheduleNum);
-                    if (stored == null) {
-                        scheduleRepository.save(toScheduleEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("schedule", scheduleNum, clinic, "INSERT (missing)");
-                    } else {
-                        Schedule incoming = toScheduleEntity(dto, clinic.getId());
-                        if (scheduleSignature(stored).equals(scheduleSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            scheduleRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("schedule", scheduleNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile schedule {} from clinic {}: {}",
-                            scheduleNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (Schedule s : existing) {
-                if (!byId.containsKey(s.getId().getScheduleNum())) {
-                    stats.stale++;
-                    if (!Boolean.TRUE.equals(s.getIsDeleted())) {
-                        s.setIsDeleted(true);
-                        s.setDeletedAt(LocalDateTime.now());
-                        scheduleRepository.save(s);
-                        logReconciled("schedule", s.getId().getScheduleNum(), clinic, "SOFT-DELETE (missing in Open Dental)");
-                    } else {
-                        log.warn("Stale schedule ScheduleNum={} already soft-deleted (clinic {})",
-                                s.getId().getScheduleNum(), clinic.getClinicCode());
-                    }
-                }
-            }
-            log.info("Reconciled {} schedules from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch schedules from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("schedules", "schedule", "schedules", "ScheduleNum", Schedule.class, "scheduleNum",
+                ScheduleResponse::getScheduleNum, null, ScheduleId::new, this::toScheduleEntity, s -> s.getId().getScheduleNum(),
+                this::scheduleSignature, scheduleRepository, scheduleRepository::findByIdClinicId, null,
+                softDelete(Schedule::getIsDeleted, s -> {
+                    s.setIsDeleted(true);
+                    s.setDeletedAt(LocalDateTime.now());
+                }), null),
+                paged(new HashMap<>(), params -> client.getSchedules(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
-/**
-     * Reconciles tooth initial charting. Covers both the ToothInitial upsert and
-     * ToothInitialDeleted: any tooth_initials row present in Supabase but missing
-     * from Open Dental's current snapshot is soft-deleted (is_deleted=true).
+
+    /**
+     * Reconciles tooth initial charting. Covers both the ToothInitial upsert and ToothInitialDeleted:
+     * any row present in Supabase but missing from Open Dental's current snapshot is soft-deleted.
      */
     private Stats reconcileToothInitials(Clinic clinic) {
-        Stats stats = new Stats();
-        try {
-            List<ToothInitialResponse> dtos = fetchAllPages(new HashMap<>(), params -> client.getToothInitials(params, clinic.getBaseUrl(), clinic.getApiKey()));
-            Map<Long, ToothInitialResponse> byId = new HashMap<>();
-            for (ToothInitialResponse dto : dtos) {
-                if (dto.getToothInitialNum() == null) {
-                    continue;
-                }
-                if (byId.put(dto.getToothInitialNum(), dto) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate tooth_initial ToothInitialNum={} returned by Open Dental for clinic {}",
-                            dto.getToothInitialNum(), clinic.getClinicCode());
-                }
-            }
-            List<ToothInitial> existing = toothInitialRepository.findByIdClinicId(clinic.getId());
-            Map<Long, ToothInitial> existingById = new HashMap<>();
-            for (ToothInitial t : existing) {
-                if (existingById.put(t.getId().getToothInitialNum(), t) != null) {
-                    stats.duplicates++;
-                    log.warn("Duplicate tooth_initial ToothInitialNum={} found in Supabase for clinic {}",
-                            t.getId().getToothInitialNum(), clinic.getClinicCode());
-                }
-            }
-            for (ToothInitialResponse dto : dtos) {
-                Long toothInitialNum = null;
-                try {
-                    toothInitialNum = dto.getToothInitialNum();
-                    if (toothInitialNum == null) {
-                        stats.failed++;
-                        log.warn("Skipping tooth_initial with null ToothInitialNum returned by Open Dental for clinic {} "
-                                + "(cannot insert/update without a primary key)", clinic.getClinicCode());
-                        continue;
-                    }
-                    ToothInitial stored = existingById.get(toothInitialNum);
-                    if (stored == null) {
-                        toothInitialRepository.save(toToothInitialEntity(dto, clinic.getId()));
-                        stats.inserted++;
-                        logReconciled("tooth_initial", toothInitialNum, clinic, "INSERT (missing)");
-                    } else {
-                        ToothInitial incoming = toToothInitialEntity(dto, clinic.getId());
-                        if (toothInitialSignature(stored).equals(toothInitialSignature(incoming))) {
-                            stats.unchanged++;
-                        } else {
-                            toothInitialRepository.save(incoming);
-                            stats.updated++;
-                            logReconciled("tooth_initial", toothInitialNum, clinic, "UPDATE (changed)");
-                        }
-                    }
-                } catch (Exception e) {
-                    stats.failed++;
-                    log.error("Failed to reconcile tooth_initial {} from clinic {}: {}",
-                            toothInitialNum, clinic.getClinicCode(), e.getMessage());
-                }
-            }
-            for (ToothInitial t : existing) {
-                if (!byId.containsKey(t.getId().getToothInitialNum())) {
-                    stats.stale++;
-                    if (!Boolean.TRUE.equals(t.getIsDeleted())) {
-                        t.setIsDeleted(true);
-                        t.setDeletedAt(LocalDateTime.now());
-                        toothInitialRepository.save(t);
-                        logReconciled("tooth_initial", t.getId().getToothInitialNum(), clinic, "SOFT-DELETE (missing in Open Dental)");
-                    } else {
-                        log.warn("Stale tooth_initial ToothInitialNum={} already soft-deleted (clinic {})",
-                                t.getId().getToothInitialNum(), clinic.getClinicCode());
-                    }
-                }
-            }
-            log.info("Reconciled {} tooth initials from clinic {} ({} inserted, {} updated, {} unchanged, {} stale, {} duplicates)",
-                    dtos.size(), clinic.getClinicCode(), stats.inserted, stats.updated,
-                    stats.unchanged, stats.stale, stats.duplicates);
-        } catch (Exception e) {
-            stats.failed++;
-            log.error("Failed to fetch tooth initials from clinic {}: {}", clinic.getClinicCode(), e.getMessage());
-        }
-        return stats;
+        return reconcile(clinic, new Table<>("toothinitials", "tooth_initial", "tooth initials", "ToothInitialNum", ToothInitial.class,
+                "toothInitialNum", ToothInitialResponse::getToothInitialNum, null, ToothInitialId::new, this::toToothInitialEntity,
+                t -> t.getId().getToothInitialNum(), this::toothInitialSignature, toothInitialRepository,
+                toothInitialRepository::findByIdClinicId, null,
+                softDelete(ToothInitial::getIsDeleted, t -> {
+                    t.setIsDeleted(true);
+                    t.setDeletedAt(LocalDateTime.now());
+                }), null),
+                paged(new HashMap<>(), params -> client.getToothInitials(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
     }
+
     // ========================================================================
     // Difference-detection helpers
     // ========================================================================
@@ -1136,15 +669,100 @@ public class ReconciliationSyncService {
     private static final int MAX_PAGES = 10_000;
 
     /**
+     * Live progress of the core table a Force Sync is copying, and whether it should stop.
+     * Set for the thread running the sync; other callers (webhooks, change pulls) have none.
+     */
+    public static final class CoreProgress {
+        final BooleanSupplier stop;
+        /** Rows read from Open Dental so far. */
+        public volatile int read;
+        /** Rows inserted or updated in Supabase so far. */
+        public volatile int written;
+        /** Rows of the table read and written completely: where a stopped sync continues. */
+        public volatile int done;
+        /** Where each table continues (rows already done by a stopped sync); empty: from the start. */
+        final Map<String, Integer> resumeAt;
+
+        public CoreProgress(BooleanSupplier stop) {
+            this(stop, Map.of());
+        }
+
+        public CoreProgress(BooleanSupplier stop, Map<String, Integer> resumeAt) {
+            this.stop = stop == null ? () -> false : stop;
+            this.resumeAt = resumeAt == null ? Map.of() : resumeAt;
+        }
+
+        /** A new table starts. */
+        public void reset() {
+            read = 0;
+            written = 0;
+            done = 0;
+        }
+
+        int startAt(String table) {
+            return resumeAt.getOrDefault(table, 0);
+        }
+    }
+
+    private static final ThreadLocal<CoreProgress> PROGRESS = new ThreadLocal<>();
+
+    /** Runs {@code work} reporting into {@code progress} and stopping when it says so. */
+    static <T> T withProgress(CoreProgress progress, Supplier<T> work) {
+        PROGRESS.set(progress);
+        try {
+            return work.get();
+        } finally {
+            PROGRESS.remove();
+        }
+    }
+
+    static CoreProgress progress() {
+        return PROGRESS.get();
+    }
+
+    static boolean stopRequested() {
+        CoreProgress progress = PROGRESS.get();
+        return progress != null && progress.stop.getAsBoolean();
+    }
+
+    private <E> RowWriter<E> writer(String entity, Clinic clinic, Stats stats, CrudRepository<E, ?> repository,
+                                    Function<E, Long> idOf) {
+        return new RowWriter<>(entity, clinic, stats, repository, batch(), idOf,
+                (id, action) -> logReconciled(entity, id, clinic, action));
+    }
+
+    /** One transaction per batch: new rows are inserted without a lookup first, changed ones merged. */
+    private <E> RowWriter.Batch<E> batch() {
+        if (entityManager == null || transactionManager == null) return null;
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        return (inserts, updates) -> tx.executeWithoutResult(status -> {
+            inserts.forEach(entityManager::persist);
+            updates.forEach(entityManager::merge);
+            entityManager.flush();
+            entityManager.clear();
+        });
+    }
+
+    /**
      * Walks every page of an Open Dental list. The first call is made with the given
      * parameters as-is; later calls add {@code Offset}. Stops on a short or empty page,
      * or when an endpoint that ignores {@code Offset} returns the same page again.
      */
-    static <T> List<T> fetchAllPages(Map<String, String> params, java.util.function.Function<Map<String, String>, List<T>> fetch) {
+    static <T> List<T> fetchAllPages(Map<String, String> params, Function<Map<String, String>, List<T>> fetch) {
         List<T> all = new ArrayList<>();
+        fetchPages(params, 0, fetch, all::addAll);
+        return all;
+    }
+
+    /** As {@link #fetchAllPages}, handing each page to {@code onPage} as it arrives, from row {@code start} on. */
+    static <T> void fetchPages(Map<String, String> params, int start, Function<Map<String, String>, List<T>> fetch,
+                               Consumer<List<T>> onPage) {
         List<T> previous = null;
-        int offset = 0;
+        int offset = start;
         for (int page = 0; page < MAX_PAGES; page++) {
+            if (stopRequested()) {
+                throw new SyncStoppedException();
+            }
             Map<String, String> pageParams = new HashMap<>(params);
             if (offset > 0) {
                 pageParams.put("Offset", String.valueOf(offset));
@@ -1153,14 +771,17 @@ public class ReconciliationSyncService {
             if (rows == null || rows.isEmpty() || rows.equals(previous)) {
                 break;
             }
-            all.addAll(rows);
+            CoreProgress progress = PROGRESS.get();
+            if (progress != null) {
+                progress.read = offset + rows.size();
+            }
+            onPage.accept(rows);
             if (rows.size() < OD_PAGE_SIZE) {
                 break;
             }
             offset += rows.size();
             previous = rows;
         }
-        return all;
     }
 
     static final class Stats {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, CirclePause, CirclePlay, LoaderCircle, RefreshCw, Save } from 'lucide-react';
 import { useAuth } from './auth/AuthContext';
 import SyncActivityCard from './components/SyncActivityCard';
-import {
+import { coreTableProgress,
   getSyncControl, getSyncSelections, getSyncStatus, groupSyncable, pauseSync, resumeSync, saveSyncSelection,
   startForceSync, syncLabel, type ClinicSyncSelection, type SyncControlState, type SyncSelections, type SyncStatus,
 } from './lib/backendSync';
@@ -221,7 +221,10 @@ function ForceSyncCard({ paused }: { paused: boolean }) {
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-[width] duration-500" style={{ width: `${percent}%` }} />
           </div>
-          <p className="mt-1.5 text-[10px] text-slate-400">{status?.done ?? 0} of {status?.total ?? 0} done · {percent}%</p>
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            {status?.done ?? 0} of {status?.total ?? 0} done · {percent}%
+            {status?.coreTable ? ` · now ${coreTableProgress(status)}` : ''}
+          </p>
         </div>
       ) : null}
 

@@ -44,6 +44,16 @@ class OpenDentalClientDiseaseDefsTest {
     }
 
     @Test
+    void encodesTheSpaceInADateTStampOnce() {
+        // Open Dental answers 400 "DateTStamp format must be yyyy-MM-dd HH:mm:ss" to %2520.
+        server.expect(requestTo(java.net.URI.create("http://opendental.test/api/v1/patients/Simple?DateTStamp=2026-10-24%2008:59:00")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+        client.getRaw("/patients/Simple", Map.of("DateTStamp", "2026-10-24 08:59:00"), null, null);
+        server.verify();
+    }
+
+    @Test
     void readsSingleDefinition() {
         server.expect(requestTo("http://opendental.test/api/v1/diseasedefs/58"))
                 .andExpect(method(HttpMethod.GET))

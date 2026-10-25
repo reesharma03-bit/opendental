@@ -238,6 +238,41 @@ public class FullSyncService {
         }
     }
 
+    /**
+     * How far the interrupted sync since {@code since} got into each core table it didn't finish
+     * (rows read and written), so it continues after them instead of reading them again.
+     */
+    Map<String, Integer> coreRowsDoneSince(UUID clinicId, Timestamp since) {
+        try {
+            Map<String, Integer> done = new java.util.HashMap<>();
+            jdbc.query("""
+                    SELECT resource, max(rows_fetched) AS rows_done FROM sync_runs
+                    WHERE clinic_id = ? AND sync_type = 'resource' AND status = 'stopped' AND resource LIKE 'core:%' AND started_at >= ?
+                    GROUP BY resource
+                    """, rs -> {
+                done.put(rs.getString("resource").substring(CORE_TABLE.length()), rs.getInt("rows_done"));
+            }, clinicId, since);
+            return done;
+        } catch (Exception e) {
+            log.debug("Could not read where the core tables stopped: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /** A core table stopped part-way: the rows done so far, where the continued sync carries on. */
+    private void recordCoreRowsDone(Clinic clinic, String table, int rowsDone) {
+        try {
+            tx.executeWithoutResult(status -> jdbc.update("""
+                            INSERT INTO sync_runs (id, clinic_id, sync_type, entity_type, resource, mode, status, rows_fetched,
+                                started_at, completed_at)
+                            VALUES (?, ?, 'resource', ?, ?, 'full', 'stopped', ?, now(), now())
+                            """,
+                    UUID.randomUUID(), clinic.getId(), CORE_TABLE + table, CORE_TABLE + table, rowsDone));
+        } catch (Exception e) {
+            log.warn("Could not record where {} stopped: {}", table, e.getMessage());
+        }
+    }
+
     /** A sync cut off by a restart of the backend continues once it is up again. */
     @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
     public void continueAfterRestart() {
@@ -305,9 +340,13 @@ public class FullSyncService {
     private boolean syncClinic(Run run, Clinic clinic, List<Resource> resources) {
         // Reconnected or resumed: continue the interrupted sync, skipping what it finished.
         java.util.Set<String> finished = java.util.Set.of();
+        Map<String, Integer> resumeAt = Map.of();
         if (continues(run.trigger)) {
             Timestamp since = interruptedSince(clinic.getId());
-            if (since != null) finished = finishedSince(clinic.getId(), since);
+            if (since != null) {
+                finished = finishedSince(clinic.getId(), since);
+                resumeAt = coreRowsDoneSince(clinic.getId(), since);
+            }
         } else {
             partials.remove(clinic.getId());
         }
@@ -325,13 +364,33 @@ public class FullSyncService {
                 run.skip(clinic, CORE);
             } else {
                 run.step(clinic, "patients, appointments, documents, procedure logs, ...");
-                ReconciliationSyncService.ReconciliationResult core =
-                        reconciliationSyncService.reconcileClinic(clinic, table -> {
-                            boolean included = !control.skips(clinic, table);
-                            if (included) run.coreTable = table;
-                            return included;
-                        });
-                run.coreTable = null;
+                // Stops when paused or disconnected; each finished table is recorded, so a continued
+                // sync skips it (it is the step's slowest part on a large practice).
+                java.util.Set<String> done = finished;
+                ReconciliationSyncService.CoreProgress progress = new ReconciliationSyncService.CoreProgress(stopNow, resumeAt);
+                run.coreProgress = progress;
+                ReconciliationSyncService.ReconciliationResult core;
+                try {
+                    core = ReconciliationSyncService.withProgress(progress, () -> reconciliationSyncService.reconcileClinic(clinic,
+                            table -> {
+                                boolean included = !control.skips(clinic, table) && !done.contains(CORE_TABLE + table);
+                                if (included) {
+                                    run.coreTable = table;
+                                    progress.reset();
+                                }
+                                return included;
+                            },
+                            (table, stats) -> recordResource(clinic, run, new ResourceMirrorService.Result(CORE_TABLE + table,
+                                    stats.processed(), stats.failed, stats.failed > 0 ? stats.failed + " record(s) failed" : null,
+                                    stats.inserted, stats.updated, 0, null))));
+                } catch (SyncStoppedException e) {
+                    if (run.coreTable != null && progress.done > 0) recordCoreRowsDone(clinic, run.coreTable, progress.done);
+                    recordEnd(runId, records, failures, "stopped");
+                    return !(control.paused() || stopReason != null);
+                } finally {
+                    run.coreTable = null;
+                    run.coreProgress = null;
+                }
                 run.add(clinic, CORE, core.syncedCount(), core.failedCount(),
                         core.failedCount() > 0 ? core.message() : null);
                 recordResource(clinic, run, new ResourceMirrorService.Result(CORE, core.syncedCount(), core.failedCount(),
@@ -387,6 +446,9 @@ public class FullSyncService {
 
     /** The step that copies the tables with their own schema (patients, appointments, ...). */
     static final String CORE = "core tables";
+
+    /** sync_runs resource of one finished table of that step, e.g. "core:procedurelogs". */
+    static final String CORE_TABLE = "core:";
 
     private String pausedBy() {
         String by = control.state().pausedBy();
@@ -470,6 +532,8 @@ public class FullSyncService {
         volatile int resumed;
         /** Core table being copied in the first step (patients, appointments, ...). */
         volatile String coreTable;
+        /** Rows of that core table read from Open Dental and written to Supabase so far. */
+        volatile ReconciliationSyncService.CoreProgress coreProgress;
         /** Progress inside the resource being copied. */
         volatile ResourceMirrorService.Progress progress;
         final Map<String, Integer> totals = new java.util.concurrent.ConcurrentHashMap<>();
@@ -516,6 +580,11 @@ public class FullSyncService {
         void live(Map<String, Object> map) {
             map.put("resumed", resumed);
             map.put("coreTable", coreTable);
+            ReconciliationSyncService.CoreProgress core = coreProgress;
+            if (coreTable != null && core != null && "running".equals(state)) {
+                map.put("stepRecords", core.read);
+                map.put("stepWritten", core.written);
+            }
             ResourceMirrorService.Progress p = progress;
             if (p != null && "running".equals(state)) {
                 map.put("stepRecords", p.records);

@@ -139,6 +139,8 @@ class ReconciliationSyncServicePatFieldsTest {
         PatFieldRepository patFieldRepository = mock(PatFieldRepository.class);
         when(patFieldRepository.findByIdClinicId(eq(clinicId)))
                 .thenReturn(List.of(storedUnchanged, storedChanged));
+        // Stored rows are looked up page by page.
+        when(patFieldRepository.findAllById(any())).thenReturn(List.of(storedUnchanged, storedChanged));
 
         ReconciliationSyncService service = buildService(clinic, client, patFieldRepository);
 
@@ -183,6 +185,8 @@ class ReconciliationSyncServicePatFieldsTest {
         PatFieldRepository patFieldRepository = mock(PatFieldRepository.class);
         when(patFieldRepository.findByIdClinicId(eq(clinicId)))
                 .thenReturn(List.of(stored));
+        // Stored rows are looked up page by page.
+        when(patFieldRepository.findAllById(any())).thenReturn(List.of(stored));
 
         ReconciliationSyncService service = buildService(clinic, client, patFieldRepository);
 

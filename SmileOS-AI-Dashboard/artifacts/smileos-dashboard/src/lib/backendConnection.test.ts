@@ -9,6 +9,8 @@ test('the webhooks headline counts active subscriptions', () => {
   assert.deepEqual(webhookSummary([hook('Patient', 'ok'), hook('Appointment', 'failing')]), { tone: 'warn', text: '1 of 2 webhooks active' });
   assert.deepEqual(webhookSummary([hook('Patient', 'off', 'Waiting for the public address')]), { tone: 'off', text: 'Waiting for the public address' });
   assert.deepEqual(webhookSummary([]), { tone: 'off', text: 'Not checked yet' });
+  assert.deepEqual(webhookSummary([hook('Patient', 'ok'), hook('LabCase', 'unsupported')]),
+    { tone: 'ok', text: 'All 1 webhooks active · 1 not offered by this Open Dental version' });
 });
 
 test('event names read as words', () => {

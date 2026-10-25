@@ -2,6 +2,7 @@ package com.clinic.opendental.dto.procedurelog;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,8 +23,10 @@ public class ProcedureLogResponse {
     @JsonAlias("Surf") private String Surf;
     @JsonAlias("ToothNum") private String ToothNum;
     @JsonAlias("ToothRange") private String ToothRange;
-    @JsonAlias("Priority") private Long Priority;
-    @JsonAlias("priority") private String priority;
+    // Open Dental sends TWO keys: "Priority": 266 (definition number) AND "priority": "Wait"
+    // (its name). With a plain @JsonAlias the lowercase String collided into the Long and failed
+    // the whole page. @JsonProperty pins the PascalCase name; the lowercase dup is ignored.
+    @JsonProperty("Priority") private Long Priority;
     @JsonAlias("ProcStatus") private String ProcStatus;
     @JsonAlias("ProvNum") private Long ProvNum;
     @JsonAlias("provAbbr") private String provAbbr;

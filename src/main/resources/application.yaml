@@ -54,6 +54,11 @@ spring:
         # Matches auto-commit: false above.
         connection:
           provider_disables_autocommit: true
+        # The sync saves rows a few hundred per transaction (RowWriter); send them as JDBC batches.
+        jdbc:
+          batch_size: 500
+        order_inserts: true
+        order_updates: true
 
 springdoc:
   api-docs:
