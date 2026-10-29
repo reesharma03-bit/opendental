@@ -1,0 +1,19 @@
+Remove the mockup-sandbox design artifact
+
+The mockup sandbox is a standalone UI prototyping canvas and is not
+part of the application. Nothing in smileos-dashboard, lib or scripts
+imports from it, and the project's own replit.md notes it is "not
+needed to run the application".
+
+It was only being built and installed because pnpm-workspace.yaml
+globs artifacts/*. Removing it drops 21 packages, including a full
+Radix UI suite, recharts, react-day-picker, vaul, cmdk,
+embla-carousel-react and date-fns, and removes it from the root
+typecheck and build runs.
+
+Also drop package-lock.json, which the pnpm-only preinstall guard
+removes to stop npm and pnpm lockfiles from diverging.
+
+Verified after removal: pnpm install clean, dashboard typecheck
+passes, vite build succeeds (2393 modules), and the dev server plus
+/api proxy to the Java backend still respond 200.

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SmileOS AI Dashboard"
+description = "A responsive, UI-only dashboard for a dental practice, with sample appointments, patient activity, revenue, and AI insights."
+version = "1.0.0"
+id = "artifacts/smileos-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24136
+
+[services.development]
+run = "pnpm --filter @workspace/smileos-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smileos-dashboard", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smileos-dashboard/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24136"
+BASE_PATH = "/"

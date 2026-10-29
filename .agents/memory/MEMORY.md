@@ -1,0 +1,1 @@
+- [OpenDental scope](open-dental-api-scope.md) — Keep the catalog documentation-only and practice data disconnected until the user explicitly requests integration.
