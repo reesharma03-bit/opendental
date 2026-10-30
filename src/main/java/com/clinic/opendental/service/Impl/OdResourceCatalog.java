@@ -62,6 +62,7 @@ final class OdResourceCatalog {
     /** One paged list call each. Synced on every resource sync. */
     static final List<Resource> LISTS = List.of(
             // Patients & families
+            list("allergies", "AllergyNum"),
             list("allergydefs", "AllergyDefNum"),
             list("diseasedefs", "DiseaseDefNum"),
             list("diseases", "DiseaseNum"),
@@ -154,7 +155,6 @@ final class OdResourceCatalog {
      * resource's parent is synced before it.
      */
     static final List<Resource> PER_PARENT = List.of(
-            perParent("allergies", "/allergies", "AllergyNum", PATIENTS, "PatNum"),
             perParent("patientraces", "/patientraces", "PatientRaceNum", PATIENTS, "PatNum"),
             perParent("popups", "/popups", "PopupNum", PATIENTS, "PatNum"),
             perParent("discountplansubs", "/discountplansubs", "DiscountSubNum", PATIENTS, "PatNum"),
