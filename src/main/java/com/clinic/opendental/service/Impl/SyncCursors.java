@@ -70,7 +70,8 @@ public class SyncCursors {
     public List<Cursor> claimDue(Clinic clinic, int limit) {
         List<Cursor> claimed = tx.execute(status -> jdbc.query("""
                         UPDATE sync_cursors c
-                        SET status = 'running', locked_by = ?, locked_until = now() + make_interval(secs => ?), updated_at = now()
+                        SET status = 'running', locked_by = ?, locked_until = now() + make_interval(secs => ?),
+                            last_sync_started_at = now(), updated_at = now()
                         WHERE (c.clinic_id, c.resource) IN (
                             SELECT clinic_id, resource FROM sync_cursors
                             WHERE clinic_id = ? AND next_due_at <= now() AND (locked_until IS NULL OR locked_until < now())
@@ -102,17 +103,28 @@ public class SyncCursors {
                 nextIn.toSeconds(), cursor.clinicId(), cursor.resource()));
     }
 
-    /** A pull finished: release the lease, move the watermark forward and set the next due time. */
-    public void succeeded(Cursor cursor, Timestamp latestChange, boolean changesOnly, Duration nextIn) {
+    /**
+     * A pull finished and every record it fetched is saved: release the lease, record what it
+     * did, move the watermark forward and set the next due time. {@code result} is null when
+     * nothing was pulled.
+     */
+    public void succeeded(Cursor cursor, ResourceMirrorService.Result result, boolean changesOnly, Duration nextIn) {
+        boolean ran = result != null;
         tx.executeWithoutResult(status -> jdbc.update("""
                         UPDATE sync_cursors
                         SET status = 'idle', locked_by = NULL, locked_until = NULL, consecutive_failures = 0, last_error = NULL,
                             watermark = GREATEST(watermark, ?::timestamp),
                             last_incremental_at = CASE WHEN ? THEN now() ELSE last_incremental_at END,
+                            last_sync_completed_at = CASE WHEN ? THEN now() ELSE last_sync_completed_at END,
+                            records_fetched = CASE WHEN ? THEN ? ELSE records_fetched END,
+                            records_inserted = CASE WHEN ? THEN ? ELSE records_inserted END,
+                            records_updated = CASE WHEN ? THEN ? ELSE records_updated END,
                             next_due_at = now() + make_interval(secs => ?), updated_at = now()
                         WHERE clinic_id = ? AND resource = ?
                         """,
-                latestChange, changesOnly, nextIn.toSeconds(), cursor.clinicId(), cursor.resource()));
+                ran ? result.latestChange() : null, changesOnly, ran,
+                ran, ran ? result.records() : 0, ran, ran ? result.inserted() : 0, ran, ran ? result.updated() : 0,
+                nextIn.toSeconds(), cursor.clinicId(), cursor.resource()));
     }
 
     /**
@@ -145,6 +157,29 @@ public class SyncCursors {
         return found.isEmpty() ? null : found.get(0).toLocalDateTime();
     }
 
+    /**
+     * Records one change pull of a core table: when it ran, what it fetched, inserted and
+     * updated, and its error. The watermark is moved separately, and only after a clean pull
+     * ({@link #coreWatermark(Clinic, String, LocalDateTime)}).
+     */
+    public void coreRan(Clinic clinic, String table, Timestamp startedAt, int fetched, int inserted, int updated, String error) {
+        tx.executeWithoutResult(status -> jdbc.update("""
+                        INSERT INTO sync_cursors (clinic_id, resource, tier, supports_tstamp, status, last_sync_started_at,
+                            last_sync_completed_at, records_fetched, records_inserted, records_updated, last_error, consecutive_failures)
+                        VALUES (?, ?, 'hot', ?, ?, ?, CASE WHEN ? THEN now() END, ?, ?, ?, left(?::text, 1000), CASE WHEN ? THEN 0 ELSE 1 END)
+                        ON CONFLICT (clinic_id, resource) DO UPDATE
+                        SET status = EXCLUDED.status, last_sync_started_at = EXCLUDED.last_sync_started_at,
+                            last_sync_completed_at = COALESCE(EXCLUDED.last_sync_completed_at, sync_cursors.last_sync_completed_at),
+                            records_fetched = EXCLUDED.records_fetched, records_inserted = EXCLUDED.records_inserted,
+                            records_updated = EXCLUDED.records_updated, last_error = EXCLUDED.last_error,
+                            consecutive_failures = CASE WHEN EXCLUDED.last_error IS NULL THEN 0 ELSE sync_cursors.consecutive_failures + 1 END,
+                            updated_at = now()
+                        """,
+                clinic.getId(), "core:" + table, OdChangeFilters.filter(table) != null,
+                error == null ? "idle" : "failed", startedAt, error == null,
+                fetched, inserted, updated, error, error == null));
+    }
+
     public void coreWatermark(Clinic clinic, String table, LocalDateTime latest) {
         if (latest == null) {
             return;
@@ -157,6 +192,19 @@ public class SyncCursors {
                             last_incremental_at = now(), updated_at = now()
                         """,
                 clinic.getId(), "core:" + table, Timestamp.valueOf(latest)));
+    }
+
+    /**
+     * Whether the listed resource is pulling changes from a checkpoint (a clean full read has
+     * set the watermark and Open Dental accepted the change filter).
+     */
+    public boolean pullsChanges(Clinic clinic, String resource) {
+        Boolean pulls = jdbc.query("""
+                        SELECT supports_tstamp AND watermark IS NOT NULL AND last_full_at IS NOT NULL
+                        FROM sync_cursors WHERE clinic_id = ? AND resource = ?
+                        """,
+                rs -> rs.next() ? rs.getBoolean(1) : Boolean.FALSE, clinic.getId(), resource);
+        return Boolean.TRUE.equals(pulls);
     }
 
     /**

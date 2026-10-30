@@ -110,6 +110,45 @@ class ResourceMirrorServiceTest {
     }
 
     @Test
+    void discountPlanSubsAreNotAskedPerPatientWhenTheClinicHasNoDiscountPlans() {
+        Resource subs = new Resource("discountplansubs", "/discountplansubs", "DiscountSubNum", OdResourceCatalog.PATIENTS, "PatNum");
+        when(client.getRaw(eq("/discountplans"), anyMap(), any(), any())).thenReturn(JSON.createArrayNode());
+        when(jdbc.queryForList(startsWith("SELECT pat_num FROM patients"), eq(Long.class), any())).thenReturn(List.of(7L, 8L));
+
+        ResourceMirrorService.Result result = service.sync(CLINIC, subs, RUN_START);
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.records()).isZero();
+        verify(client, never()).getRaw(eq("/discountplansubs"), anyMap(), any(), any());
+    }
+
+    @Test
+    void discountPlanSubsAreAskedPerPatientWhenTheClinicHasDiscountPlans() {
+        Resource subs = new Resource("discountplansubs", "/discountplansubs", "DiscountSubNum", OdResourceCatalog.PATIENTS, "PatNum");
+        when(client.getRaw(eq("/discountplans"), anyMap(), any(), any()))
+                .thenReturn(array(JSON.createObjectNode().put("DiscountPlanNum", 1)));
+        when(jdbc.queryForList(startsWith("SELECT pat_num FROM patients"), eq(Long.class), any())).thenReturn(List.of(7L));
+        when(client.getRaw(eq("/discountplansubs"), eq(Map.of("PatNum", "7")), any(), any()))
+                .thenReturn(JSON.createObjectNode().put("DiscountSubNum", 32));
+
+        ResourceMirrorService.Result result = service.sync(CLINIC, subs, RUN_START);
+
+        assertThat(result.records()).isEqualTo(1);
+    }
+
+    @Test
+    void changedScopeAsksOnlyPatientsAddedOrChangedThisWeek() {
+        Resource races = new Resource("patientraces", "/patientraces", "PatientRaceNum", OdResourceCatalog.PATIENTS, "PatNum");
+        when(jdbc.queryForList(contains("interval '7 days'"), eq(Long.class), any())).thenReturn(List.of(9L));
+
+        service.sync(CLINIC, races, RUN_START, ResourceMirrorService.Scope.CHANGED);
+
+        verify(jdbc).queryForList(argThat((String sql) -> sql.contains("updated_at >=") && !sql.contains("% 7")), eq(Long.class), any());
+        verify(client).getRaw(eq("/patientraces"), eq(Map.of("PatNum", "9")), any(), any());
+        verify(client, times(1)).getRaw(eq("/patientraces"), anyMap(), any(), any());
+    }
+
+    @Test
     void stoppedPartWayKeepsEverythingAndContinuesAfterTheLastPatientDone() {
         Resource allergies = new Resource("allergies", "/allergies", "AllergyNum", OdResourceCatalog.PATIENTS, "PatNum");
         when(jdbc.queryForList(startsWith("SELECT pat_num FROM patients"), eq(Long.class), any()))
@@ -236,5 +275,88 @@ class ResourceMirrorServiceTest {
             array.add(item);
         }
         return array;
+    }
+
+    @Test
+    void treatPlanChangesArePulledWithTheirDocumentedSecDateTEditFilter() {
+        Resource treatplans = OdResourceCatalog.find("treatplans");
+        ArrayNode changed = JSON.createArrayNode();
+        changed.add(JSON.createObjectNode().put("TreatPlanNum", 7).put("SecDateTEdit", "2026-10-04 10:15:00"));
+        when(client.getRaw(eq("/treatplans"), anyMap(), any(), any())).thenReturn(changed);
+
+        ResourceMirrorService.Result result = service.syncChanged(CLINIC, treatplans, java.time.LocalDateTime.of(2026, 10, 4, 10, 0));
+
+        verify(client).getRaw("/treatplans", Map.of("SecDateTEdit", "2026-10-04 10:00:00"), "http://od", "key");
+        assertThat(result.records()).isEqualTo(1);
+        assertThat(result.latestChange()).isEqualTo(Timestamp.valueOf("2026-10-04 10:15:00"));
+    }
+
+    @Test
+    void anUndocumentedFilterThatOpenDentalIgnoresIsNotUsed() {
+        Resource allergies = OdResourceCatalog.find("allergies");
+        when(jdbc.queryForObject(contains("max(od_tstamp)"), eq(Timestamp.class), any(), any()))
+                .thenReturn(Timestamp.valueOf("2026-10-04 10:00:00"));
+        ArrayNode everything = JSON.createArrayNode();
+        everything.add(JSON.createObjectNode().put("AllergyNum", 1).put("DateTStamp", "2020-01-01 00:00:00"));
+        everything.add(JSON.createObjectNode().put("AllergyNum", 2).put("DateTStamp", "2026-10-04 10:00:00"));
+        when(client.getRaw(eq("/allergies"), anyMap(), any(), any())).thenReturn(everything);
+
+        assertThat(service.acceptsChangedSince(CLINIC, allergies)).isFalse();
+    }
+
+    @Test
+    void anUndocumentedFilterIsUsedOnceOpenDentalIsShownToHonourIt() {
+        Resource hist = OdResourceCatalog.find("histappointments");
+        when(jdbc.queryForObject(contains("max(od_tstamp)"), eq(Timestamp.class), any(), any()))
+                .thenReturn(Timestamp.valueOf("2026-10-04 10:00:00"));
+        ArrayNode newest = JSON.createArrayNode();
+        newest.add(JSON.createObjectNode().put("HistApptNum", 9).put("HistDateTStamp", "2026-10-04 10:00:00"));
+        when(client.getRaw(eq("/histappointments"), eq(Map.of("HistDateTStamp", "2099-01-01 00:00:00")), any(), any()))
+                .thenReturn(JSON.createArrayNode());
+        when(client.getRaw(eq("/histappointments"), eq(Map.of("HistDateTStamp", "2026-10-04 09:59:59")), any(), any()))
+                .thenReturn(newest);
+
+        assertThat(service.acceptsChangedSince(CLINIC, hist)).isTrue();
+
+        service.syncChanged(CLINIC, hist, java.time.LocalDateTime.of(2026, 10, 4, 9, 0));
+        verify(client).getRaw("/histappointments", Map.of("HistDateTStamp", "2026-10-04 09:00:00"), "http://od", "key");
+    }
+
+    @Test
+    void aDocumentedFilterIsCheckedWithItsOwnParameter() {
+        Resource commlogs = OdResourceCatalog.find("commlogs");
+        when(jdbc.queryForObject(contains("od_tstamp IS NOT NULL"), eq(Boolean.class), any(), any())).thenReturn(true);
+        when(client.getRaw(eq("/commlogs"), anyMap(), any(), any())).thenReturn(JSON.createArrayNode());
+
+        assertThat(service.acceptsChangedSince(CLINIC, commlogs)).isTrue();
+        verify(client).getRaw("/commlogs", Map.of("DateTStamp", "2099-01-01 00:00:00"), "http://od", "key");
+    }
+
+    @Test
+    void histAppointmentsAreCheckpointedByHistDateTStamp() {
+        Resource hist = OdResourceCatalog.find("histappointments");
+        ArrayNode rows = JSON.createArrayNode();
+        rows.add(JSON.createObjectNode().put("HistApptNum", 1).put("HistDateTStamp", "2026-10-04 11:00:00")
+                .put("DateTStamp", "2026-10-04 09:00:00"));
+        when(client.getRaw(eq("/histappointments"), anyMap(), any(), any())).thenReturn(rows);
+
+        ResourceMirrorService.Result result = service.sync(CLINIC, hist, RUN_START);
+
+        assertThat(result.latestChange()).isEqualTo(Timestamp.valueOf("2026-10-04 11:00:00"));
+    }
+
+    @Test
+    void otherListedScreensAreVerifiedTheSameStrictWay() {
+        Resource carriers = OdResourceCatalog.find("carriers");
+        when(jdbc.queryForObject(contains("max(od_tstamp)"), eq(Timestamp.class), any(), any()))
+                .thenReturn(Timestamp.valueOf("2026-10-04 10:00:00"));
+        // Nothing after a far-future date, but older records for a recent one: not really filtering.
+        when(client.getRaw(eq("/carriers"), eq(Map.of("DateTStamp", "2099-01-01 00:00:00")), any(), any()))
+                .thenReturn(JSON.createArrayNode());
+        ArrayNode older = JSON.createArrayNode();
+        older.add(JSON.createObjectNode().put("CarrierNum", 1).put("DateTStamp", "2025-01-01 00:00:00"));
+        when(client.getRaw(eq("/carriers"), eq(Map.of("DateTStamp", "2026-10-04 09:59:59")), any(), any())).thenReturn(older);
+
+        assertThat(service.acceptsChangedSince(CLINIC, carriers)).isFalse();
     }
 }

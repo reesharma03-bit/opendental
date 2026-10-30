@@ -54,6 +54,13 @@ public class FullSyncService {
     private final TransactionTemplate tx;
     private final SyncControl control;
     private final boolean enabled;
+    /**
+     * Whether the nightly sync still re-reads, in full, the APIs that pull their changes from a
+     * checkpoint ({@link OdChangeFilters}). Off: they are left to their change pulls, and only
+     * Force Sync re-reads them (which is also when deletes in Open Dental are noticed for them).
+     */
+    @Value("${resource-sync.nightly-full-reads:false}")
+    private boolean nightlyFullReads;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     /** Set by {@link #stop}: the running sync ends after the resource it is on. */
@@ -373,16 +380,20 @@ public class FullSyncService {
                 try {
                     core = ReconciliationSyncService.withProgress(progress, () -> reconciliationSyncService.reconcileClinic(clinic,
                             table -> {
-                                boolean included = !control.skips(clinic, table) && !done.contains(CORE_TABLE + table);
+                                boolean included = !control.skips(clinic, table) && !done.contains(CORE_TABLE + table)
+                                        && !pullsChangesInstead(run, clinic, table, true);
                                 if (included) {
                                     run.coreTable = table;
                                     progress.reset();
                                 }
                                 return included;
                             },
-                            (table, stats) -> recordResource(clinic, run, new ResourceMirrorService.Result(CORE_TABLE + table,
-                                    stats.processed(), stats.failed, stats.failed > 0 ? stats.failed + " record(s) failed" : null,
-                                    stats.inserted, stats.updated, 0, null))));
+                            (table, stats) -> {
+                                recordResource(clinic, run, new ResourceMirrorService.Result(CORE_TABLE + table,
+                                        stats.processed(), stats.failed, stats.failed > 0 ? stats.failed + " record(s) failed" : null,
+                                        stats.inserted, stats.updated, 0, null));
+                                recordCheckpoint(clinic, table, stats);
+                            }));
                 } catch (SyncStoppedException e) {
                     if (run.coreTable != null && progress.done > 0) recordCoreRowsDone(clinic, run.coreTable, progress.done);
                     recordEnd(runId, records, failures, "stopped");
@@ -408,7 +419,7 @@ public class FullSyncService {
                 recordEnd(runId, records, failures, "stopped");
                 return true; // disconnected: carry on with the other clinics
             }
-            if (finished.contains(resource.resource())) {
+            if (finished.contains(resource.resource()) || pullsChangesInstead(run, clinic, resource.resource(), false)) {
                 run.skip(clinic, resource.resource());
                 continue;
             }
@@ -416,11 +427,7 @@ public class FullSyncService {
             Long startAfter = partial != null && partial.resource().equals(resource.resource()) ? partial.lastParent() : null;
             ResourceMirrorService.Progress progress = new ResourceMirrorService.Progress(stopNow, startAfter);
             run.progress = progress;
-            // Nightly: per-patient resources for recently active patients plus a rolling seventh of
-            // the rest (Open Dental's ~1 call/second can't cover every patient every night).
-            // Force Sync: everyone.
-            ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart,
-                    "nightly".equals(run.trigger) ? ResourceMirrorService.Scope.RECENT : ResourceMirrorService.Scope.ALL, progress);
+            ResourceMirrorService.Result result = mirror.sync(clinic, resource, runStart, scope(run, clinic, resource), progress);
             run.progress = null;
             if (progress.stopped) {
                 // Stopped part-way: kept as is; the next continued sync carries on after the last patient done.
@@ -442,6 +449,70 @@ public class FullSyncService {
         }
         recordEnd(runId, records, failures, failures == 0 ? "completed" : "completed_with_errors");
         return true;
+    }
+
+    /**
+     * Which patients a per-patient resource is fetched for (Open Dental's ~1 call/second can't
+     * cover every patient on every run):
+     * <ul>
+     *   <li>Force Sync: everyone.</li>
+     *   <li>A resource that had nothing for anyone last time: patients added or changed in the
+     *       last week, and everyone on Sundays.</li>
+     *   <li>Otherwise (nightly, continuing after a restart, first connect): recently active
+     *       patients plus a rolling seventh of the rest, so everyone is covered once a week.</li>
+     * </ul>
+     */
+    private ResourceMirrorService.Scope scope(Run run, Clinic clinic, Resource resource) {
+        if ("force".equals(run.trigger) || resource.isList()) {
+            return ResourceMirrorService.Scope.ALL;
+        }
+        try {
+            if (mirror.nothingFound(clinic, resource)) {
+                return java.time.LocalDate.now().getDayOfWeek() == java.time.DayOfWeek.SUNDAY
+                        ? ResourceMirrorService.Scope.ALL : ResourceMirrorService.Scope.CHANGED;
+            }
+        } catch (Exception e) {
+            log.warn("Could not check what {} had last time (clinic {}): {}", resource.resource(), clinic.getClinicCode(), e.getMessage());
+        }
+        return ResourceMirrorService.Scope.RECENT;
+    }
+
+    /**
+     * Nightly only: a listed resource (or a core table with a documented filter) that already
+     * pulls its changes from a checkpoint needs no full re-read. Procedure logs are re-read
+     * anyway: Open Dental's filter only returns new ones. Per-patient resources have no filter.
+     */
+    private boolean pullsChangesInstead(Run run, Clinic clinic, String resource, boolean core) {
+        if (!"nightly".equals(run.trigger) || nightlyFullReads || "procedurelogs".equals(resource)
+                || OdChangeFilters.param(resource) == null || (core && OdChangeFilters.filter(resource) == null)) {
+            return false;
+        }
+        try {
+            return core ? cursors.coreWatermark(clinic, resource) != null : cursors.pullsChanges(clinic, resource);
+        } catch (Exception e) {
+            log.warn("Could not read the checkpoint of {} (clinic {}): {}", resource, clinic.getClinicCode(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * A full read of an in-scope core table is a sync of it too: record it on the table's
+     * checkpoint, and move the watermark when every record was saved. For documents, which
+     * Open Dental lists only per patient and without a change filter, this is their checkpoint.
+     */
+    private void recordCheckpoint(Clinic clinic, String table, ReconciliationSyncService.Stats stats) {
+        if (!OdChangeFilters.inScope(table)) {
+            return;
+        }
+        try {
+            cursors.coreRan(clinic, table, Timestamp.from(Instant.now()), stats.fetched(), stats.inserted, stats.updated,
+                    stats.failed == 0 ? null : stats.failed + " call(s) or record(s) failed; checkpoint kept");
+            if (stats.failed == 0) {
+                cursors.coreWatermark(clinic, table, CoreChangeSync.parse(stats.latestStamp));
+            }
+        } catch (Exception e) {
+            log.warn("Could not record the {} checkpoint of clinic {}: {}", table, clinic.getClinicCode(), e.getMessage());
+        }
     }
 
     /** The step that copies the tables with their own schema (patients, appointments, ...). */

@@ -522,7 +522,7 @@ public class ReconciliationSyncService {
                     }
                 });
         return reconcile(clinic, new Table<>("documents", "document", "documents", "DocNum", Document.class, "docNum",
-                DocumentResponse::getDocNum, null, DocumentId::new, this::toDocumentEntity, d -> d.getId().getDocNum(),
+                DocumentResponse::getDocNum, DocumentResponse::getDateTStamp, DocumentId::new, this::toDocumentEntity, d -> d.getId().getDocNum(),
                 this::documentSignature, documentRepository, documentRepository::findByIdClinicId, OdSyncService.DOCUMENT, null,
                 List.of(new Parent<>("patient", Patient.class, "patNum", Document::getPatNum, null))),
                 perPatient, true);
@@ -544,10 +544,16 @@ public class ReconciliationSyncService {
     }
 
     Stats reconcileProviders(Clinic clinic) {
+        return reconcileProviders(clinic, Map.of());
+    }
+
+    /** Full read with no filter; with one (DateTStamp) a change pull, which marks nothing stale. */
+    Stats reconcileProviders(Clinic clinic, Map<String, String> filter) {
         return reconcile(clinic, new Table<>("providers", "provider", "providers", "ProvNum", Provider.class, "provNum",
-                ProviderResponse::getProvNum, null, ProviderId::new, this::toProviderEntity, p -> p.getId().getProvNum(),
-                this::providerSignature, providerRepository, providerRepository::findByIdClinicId, null, null, null),
-                paged(new HashMap<>(), params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey())), true);
+                ProviderResponse::getProvNum, ProviderResponse::getDateTStamp, ProviderId::new, this::toProviderEntity,
+                p -> p.getId().getProvNum(), this::providerSignature, providerRepository, providerRepository::findByIdClinicId,
+                null, null, null),
+                paged(filter, params -> client.getProviders(params, clinic.getBaseUrl(), clinic.getApiKey())), filter.isEmpty());
     }
 
     Stats reconcileOperatories(Clinic clinic) {
@@ -812,6 +818,11 @@ public class ReconciliationSyncService {
 
         int synced() {
             return inserted + updated;
+        }
+
+        /** Records read from Open Dental and handled (written, unchanged or duplicate). */
+        int fetched() {
+            return inserted + updated + unchanged + duplicates;
         }
 
         int processed() {

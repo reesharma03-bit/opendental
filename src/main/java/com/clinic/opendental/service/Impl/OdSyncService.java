@@ -595,16 +595,19 @@ public class OdSyncService {
         if (wanted == null) {
             return null;
         }
-        ObjectNode newest = null;
-        for (JsonNode row : ReconciliationSyncService.fetchAllPages(java.util.Map.of(),
-                params -> ResourceMirrorService.rows(client.getRaw(def.path(), params, baseUrl, apiKey)))) {
-            Long key = keyOf(row, def.keyField());
-            if (row.isObject() && key != null && wanted.asText().equals(row.path(field).asText())
-                    && (newest == null || key > keyOf(newest, def.keyField()))) {
-                newest = (ObjectNode) row;
-            }
-        }
-        return newest;
+        // Page by page: only the best match so far is kept, not the whole list.
+        ObjectNode[] newest = {null};
+        ReconciliationSyncService.fetchPages(java.util.Map.of(), 0,
+                params -> ResourceMirrorService.rows(client.getRaw(def.path(), params, baseUrl, apiKey)), page -> {
+                    for (JsonNode row : page) {
+                        Long key = keyOf(row, def.keyField());
+                        if (row.isObject() && key != null && wanted.asText().equals(row.path(field).asText())
+                                && (newest[0] == null || key > keyOf(newest[0], def.keyField()))) {
+                            newest[0] = (ObjectNode) row;
+                        }
+                    }
+                });
+        return newest[0];
     }
 
     private void resolvePatNum(UUID clinicId, ObjectNode body) {

@@ -23,5 +23,6 @@ public class ProviderResponse {
     @JsonAlias({"ProvStatus", "prov_status"}) private String ProvStatus;
     @JsonAlias({"ProvType", "prov_type"}) private String ProvType;
     @JsonAlias({"ClinicNum", "clinic_num"}) private Long ClinicNum;
+    @JsonAlias({"DateTStamp", "date_t_stamp"}) private String DateTStamp;
     @JsonAlias({"serverDateTime", "server_date_time"}) private String serverDateTime;
 }

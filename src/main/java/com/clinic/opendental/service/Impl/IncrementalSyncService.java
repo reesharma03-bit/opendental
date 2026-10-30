@@ -110,15 +110,16 @@ public class IncrementalSyncService {
         if (cursor.pullChanges()) {
             try {
                 ResourceMirrorService.Result result = mirror.syncChanged(clinic, resource, cursor.watermark().minus(OVERLAP));
-                cursors.succeeded(cursor, result.latestChange(), true, cursor.tier().changesEvery);
+                cursors.succeeded(cursor, result, true, cursor.tier().changesEvery);
                 if (result.inserted() + result.updated() > 0) {
                     log.info("{} (clinic {}): {} changed record(s) from Open Dental, {} new, {} updated, in {} ms",
                             resource.resource(), clinic.getClinicCode(), result.records(), result.inserted(),
                             result.updated(), System.currentTimeMillis() - started);
                 }
             } catch (HttpClientErrorException.BadRequest e) {
-                // Open Dental refused the filter after all: fall back to full reads.
-                cursors.failed(cursor, "DateTStamp filter refused: " + e.getMessage(), cursor.tier().changesEvery, true);
+                // Open Dental refused the filter after all (older than the version that added it): fall back to full reads.
+                cursors.failed(cursor, OdChangeFilters.param(resource.resource()) + " filter refused: " + e.getMessage(),
+                        cursor.tier().changesEvery, true);
             } catch (Exception e) {
                 log.warn("Change pull of {} (clinic {}) failed: {}", resource.resource(), clinic.getClinicCode(), e.getMessage());
                 cursors.failed(cursor, e.getMessage(), cursor.tier().changesEvery, false);
@@ -133,7 +134,7 @@ public class IncrementalSyncService {
         }
         boolean supportsChanges = cursor.supportsChanges() || probe(clinic, resource);
         cursors.fullPassDone(clinic, resource, result, supportsChanges);
-        cursors.succeeded(cursor, result.latestChange(), false,
+        cursors.succeeded(cursor, result, false,
                 supportsChanges ? cursor.tier().changesEvery : cursor.tier().refreshEvery);
         log.info("{} (clinic {}): full read of {} record(s), {} new, {} updated, {} removed; change pull {}",
                 resource.resource(), clinic.getClinicCode(), result.records(), result.inserted(), result.updated(),

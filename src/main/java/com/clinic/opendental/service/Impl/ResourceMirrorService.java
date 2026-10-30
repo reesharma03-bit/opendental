@@ -127,6 +127,21 @@ public class ResourceMirrorService {
             ORDER BY apt_num
             """;
 
+    /** Patients added or changed in the last week only: for a per-patient resource that has had nothing. */
+    private static final String CHANGED_PATIENTS = """
+            SELECT pat_num FROM patients
+            WHERE clinic_id = ? AND pat_num > 0
+              AND (updated_at >= now() - interval '7 days' OR created_at >= now() - interval '7 days')
+            ORDER BY pat_num
+            """;
+
+    /**
+     * Per-patient resources that can only exist when the clinic has set something up first:
+     * a patient can't be on a discount plan the clinic doesn't have. One call to the list
+     * decides whether calling Open Dental for every patient is worth it.
+     */
+    static final Map<String, String> NEEDS_ANY = Map.of("discountplansubs", "/discountplans");
+
     /**
      * Which parents a per-patient / per-appointment resource is fetched for. Open Dental
      * allows about one call per second, so calling it for every patient every night does
@@ -136,7 +151,9 @@ public class ResourceMirrorService {
         /** Every patient / appointment (Force Sync). */
         ALL,
         /** Recently active ones plus a rolling seventh of the rest (nightly). */
-        RECENT
+        RECENT,
+        /** Only patients added or changed in the last week (a resource that had nothing last time). */
+        CHANGED
     }
 
     private static final DateTimeFormatter OD_TIMESTAMP =DateTimeFormatter.ofPattern("yyyy-MM-dd[ ]['T']HH:mm:ss");
@@ -244,7 +261,7 @@ public class ResourceMirrorService {
                     });
                 }
             } else {
-                List<Long> all = parentIds(clinic, resource, scope);
+                List<Long> all = clinicHasAny(clinic, resource) ? parentIds(clinic, resource, scope) : List.of();
                 parents = partial ? all.stream().filter(id -> id > progress.startAfterParent).toList() : all;
                 progress.parentsTotal = all.size();
                 progress.parentsDone = all.size() - parents.size();
@@ -257,7 +274,7 @@ public class ResourceMirrorService {
             if (counter.failedCalls == 0 && !(partial && !scoped(resource))) {
                 String prune = PRUNE;
                 List<Object> args = new ArrayList<>(List.of(clinic.getId(), resource.resource(), runStart, counter.runBatch));
-                if ((scope == Scope.RECENT || partial) && parents != null && scoped(resource)) {
+                if ((scope != Scope.ALL || partial) && parents != null && scoped(resource)) {
                     prune = OdResourceCatalog.PATIENTS.equals(resource.parent()) ? PRUNE_FOR_PATIENTS : PRUNE_FOR_APPOINTMENTS;
                     args.add(parents.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",", "{", "}")));
                 }
@@ -285,18 +302,23 @@ public class ResourceMirrorService {
     }
 
     /**
-     * Copies only the records Open Dental changed since {@code since} (its DateTStamp
-     * filter). Nothing is removed: deletes are only detected by a full {@link #sync}.
-     * Throws when Open Dental refuses the call, so the caller can back off.
+     * Copies only the records Open Dental changed since {@code since}, using the resource's
+     * documented change filter ({@link OdChangeFilters}; DateTStamp for the others). Nothing
+     * is removed: deletes are only detected by a full {@link #sync}. Throws when Open Dental
+     * refuses a call or a page can't be saved, so the caller keeps its checkpoint and backs off.
      */
     public Result syncChanged(Clinic clinic, Resource resource, LocalDateTime since) {
         if (!resource.isList()) {
             throw new IllegalArgumentException(resource.resource() + " is fetched per parent and has no change filter");
         }
+        String param = OdChangeFilters.param(resource.resource());
+        if (param == null) {
+            throw new IllegalArgumentException(resource.resource() + ": " + OdChangeFilters.UNFILTERED.get(resource.resource()));
+        }
         Counter counter = new Counter(UUID.randomUUID());
         try {
             for (Map<String, String> pass : resource.passes()) {
-                forEachPage(clinic, resource.path(), with(pass, "DateTStamp", since.format(OD_TIMESTAMP_OUT)),
+                forEachPage(clinic, resource.path(), with(pass, param, since.format(OD_TIMESTAMP_OUT)),
                         rows -> save(clinic, resource, rows, null, counter));
             }
             refreshTyped(clinic, resource.resource());
@@ -365,13 +387,26 @@ public class ResourceMirrorService {
     }
 
     /**
-     * Whether Open Dental filters this resource by DateTStamp: asked for changes after a
-     * date far in the future it must answer with nothing, and the records we hold must
-     * carry a DateTStamp. An endpoint that ignores the filter returns everything.
+     * Whether Open Dental filters this resource by its change filter: asked for changes after
+     * a date far in the future it must answer with nothing, and the records we hold must carry
+     * the timestamp. An endpoint that ignores the filter returns everything. For the APIs in
+     * {@link OdChangeFilters} only the documented parameter is tried (the call confirms this
+     * clinic's Open Dental is recent enough for it). An undocumented one must also be shown to
+     * really filter ({@link #verifiedFilter}) before it is relied on.
      */
     public boolean acceptsChangedSince(Clinic clinic, Resource resource) {
         if (!resource.isList()) {
             return false;
+        }
+        String param = OdChangeFilters.param(resource.resource());
+        if (param == null) {
+            return false;
+        }
+        if (OdChangeFilters.needsVerifying(resource.resource())) {
+            boolean verified = verifiedFilter(clinic, resource, param);
+            log.info("{} (clinic {}): undocumented {} filter {}", resource.resource(), clinic.getClinicCode(), param,
+                    verified ? "verified, pulling changes only" : "not honoured, reading in full");
+            return verified;
         }
         Boolean stamped = jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM od_resource_records WHERE clinic_id = ? AND resource = ? AND od_tstamp IS NOT NULL)",
@@ -381,7 +416,7 @@ public class ResourceMirrorService {
         }
         for (Map<String, String> pass : resource.passes()) {
             try {
-                if (!rows(get(clinic, resource.path(), with(pass, "DateTStamp", "2099-01-01 00:00:00"))).isEmpty()) {
+                if (!rows(get(clinic, resource.path(), with(pass, param, "2099-01-01 00:00:00"))).isEmpty()) {
                     return false; // the filter is ignored
                 }
             } catch (HttpClientErrorException.NotFound e) {
@@ -391,6 +426,55 @@ public class ResourceMirrorService {
             }
         }
         return true;
+    }
+
+    /**
+     * Shows that Open Dental really filters an undocumented parameter: asked for changes after
+     * a far-future time it returns nothing, and asked for changes since just before the newest
+     * stamp we hold it returns that record and only records stamped after that time. An endpoint
+     * that ignores the parameter fails the second check (it returns older records too), one that
+     * refuses it fails either.
+     */
+    private boolean verifiedFilter(Clinic clinic, Resource resource, String param) {
+        Timestamp newest = jdbc.queryForObject(
+                "SELECT max(od_tstamp) FROM od_resource_records WHERE clinic_id = ? AND resource = ? AND deleted_at IS NULL",
+                Timestamp.class, clinic.getId(), resource.resource());
+        if (newest == null) {
+            return false;
+        }
+        String field = OdChangeFilters.stampField(resource.resource());
+        Timestamp since = Timestamp.valueOf(newest.toLocalDateTime().minusSeconds(1));
+        int recent = 0;
+        try {
+            for (Map<String, String> pass : resource.passes()) {
+                List<JsonNode> future;
+                try {
+                    future = rows(get(clinic, resource.path(), with(pass, param, "2099-01-01 00:00:00")));
+                } catch (HttpClientErrorException.NotFound e) {
+                    future = List.of();
+                }
+                if (!future.isEmpty()) {
+                    return false; // the parameter is ignored
+                }
+                List<JsonNode> rows;
+                try {
+                    rows = rows(get(clinic, resource.path(),
+                            with(pass, param, since.toLocalDateTime().format(OD_TIMESTAMP_OUT))));
+                } catch (HttpClientErrorException.NotFound e) {
+                    rows = List.of();
+                }
+                for (JsonNode row : rows) {
+                    Timestamp stamp = odTimestamp(row, field);
+                    if (stamp == null || !stamp.after(since)) {
+                        return false; // returned something older: not filtered by this field
+                    }
+                }
+                recent += rows.size();
+            }
+        } catch (HttpClientErrorException e) {
+            return false; // the parameter is refused
+        }
+        return recent > 0;
     }
 
     private static Map<String, String> with(Map<String, String> params, String name, String value) {
@@ -445,12 +529,55 @@ public class ResourceMirrorService {
         return OdResourceCatalog.PATIENTS.equals(resource.parent()) || OdResourceCatalog.APPOINTMENTS.equals(resource.parent());
     }
 
+    /**
+     * False when the resource needs something the clinic has none of ({@link #NEEDS_ANY}), so
+     * no patient can have it: one call instead of one per patient. When that call fails, the
+     * patients are asked as usual.
+     */
+    boolean clinicHasAny(Clinic clinic, Resource resource) {
+        String list = NEEDS_ANY.get(resource.resource());
+        if (list == null) {
+            return true;
+        }
+        try {
+            if (!rows(get(clinic, list, Map.of())).isEmpty()) {
+                return true;
+            }
+        } catch (HttpClientErrorException.NotFound e) {
+            // "nothing found"
+        } catch (Exception e) {
+            log.warn("Could not check {} before {} (clinic {}): {}", list, resource.resource(), clinic.getClinicCode(), e.getMessage());
+            return true;
+        }
+        log.info("Skipping {} for clinic {}: Open Dental has no {}", resource.resource(), clinic.getClinicCode(), list.substring(1));
+        return false;
+    }
+
+    /**
+     * True when a per-patient resource has nothing for this clinic although it has run before
+     * (a run with a few failed calls counts): Open Dental had nothing for anyone asked, so
+     * asking everyone every night is wasted calls. Sunday's full pass corrects a wrong guess.
+     */
+    public boolean nothingFound(Clinic clinic, Resource resource) {
+        if (!OdResourceCatalog.PATIENTS.equals(resource.parent())) {
+            return false;
+        }
+        Boolean empty = jdbc.queryForObject("""
+                SELECT NOT EXISTS (SELECT 1 FROM od_resource_records WHERE clinic_id = ? AND resource = ?)
+                   AND EXISTS (SELECT 1 FROM sync_runs WHERE clinic_id = ? AND resource = ? AND sync_type = 'resource')
+                """, Boolean.class, clinic.getId(), resource.resource(), clinic.getId(), resource.resource());
+        return Boolean.TRUE.equals(empty);
+    }
+
     /** Ids to query a per-parent resource by, taken from what is already in our database. */
     List<Long> parentIds(Clinic clinic, Resource resource, Scope scope) {
-        if (scope == Scope.RECENT && OdResourceCatalog.PATIENTS.equals(resource.parent())) {
+        if (scope == Scope.CHANGED && OdResourceCatalog.PATIENTS.equals(resource.parent())) {
+            return jdbc.queryForList(CHANGED_PATIENTS, Long.class, clinic.getId());
+        }
+        if (scope != Scope.ALL && OdResourceCatalog.PATIENTS.equals(resource.parent())) {
             return jdbc.queryForList(RECENT_PATIENTS, Long.class, clinic.getId());
         }
-        if (scope == Scope.RECENT && OdResourceCatalog.APPOINTMENTS.equals(resource.parent())) {
+        if (scope != Scope.ALL && OdResourceCatalog.APPOINTMENTS.equals(resource.parent())) {
             return jdbc.queryForList(RECENT_APPOINTMENTS, Long.class, clinic.getId());
         }
         return switch (resource.parent()) {
@@ -526,7 +653,7 @@ public class ResourceMirrorService {
                     resource.resource(),
                     recordKey(resource, row, parentId),
                     patNum(resource, row, parentId),
-                    odTimestamp(row),
+                    odTimestamp(row, OdChangeFilters.stampField(resource.resource())),
                     json,
                     json});
         }
@@ -551,8 +678,13 @@ public class ResourceMirrorService {
 
     /** Open Dental's last-change time (DateTStamp), when the record carries one. */
     static Timestamp odTimestamp(JsonNode row) {
-        JsonNode stamp = row.get("DateTStamp");
-        if (stamp == null || !stamp.isTextual() || stamp.asText().isBlank()) {
+        return odTimestamp(row, "DateTStamp");
+    }
+
+    /** Open Dental's last-change time from {@code field} (see {@link OdChangeFilters#stampField}). */
+    static Timestamp odTimestamp(JsonNode row, String field) {
+        JsonNode stamp = row.get(field);
+        if (stamp == null || !stamp.isTextual() || stamp.asText().isBlank() || stamp.asText().startsWith("0001")) {
             return null;
         }
         try {
