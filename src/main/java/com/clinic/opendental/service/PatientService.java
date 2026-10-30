@@ -22,6 +22,10 @@ public interface PatientService {
 
     PatientResponse getPatient(Long patNum);
 
+    List<PatientResponse> getPatientsByProcedure(String procCode);
+
+    List<String> getProcedureCodes();
+
     PatientResponse createPatient(CreatePatientRequest request);
 
     PatientResponse updatePatient(Long patNum, UpdatePatientRequest request);

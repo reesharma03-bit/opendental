@@ -79,9 +79,15 @@ public class ApiPatientsController {
         return ResponseEntity.ok(patientService.getSimplePatients(params));
     }
 
-    /**
-     * Get Patient by PatNum
-     */
+    @GetMapping("/by-procedure")
+    public ResponseEntity<List<PatientResponse>> getPatientsByProcedure(@RequestParam(required = false) String procCode) {
+        return ResponseEntity.ok(patientService.getPatientsByProcedure(procCode));
+    }
+
+    @GetMapping("/procedure-codes")
+    public ResponseEntity<List<String>> getProcedureCodes() {
+        return ResponseEntity.ok(patientService.getProcedureCodes());
+    }
     @GetMapping("/{patNum}")
     public ResponseEntity<PatientResponse> getPatient(
             @PathVariable Long patNum) {

@@ -4,6 +4,7 @@ import { pick, pickNum, request, type Raw } from './backend';
 export interface BackendPatient {
   recordKey: string;
   patNum: number;
+  procedure: string;
   firstName: string;
   lastName: string;
   middleInitial: string;
@@ -37,6 +38,7 @@ export function mapBackendPatient(raw: Raw): BackendPatient {
   return {
     recordKey: pick(raw, 'record_key', 'recordKey') || `P-${patNum}`,
     patNum,
+    procedure: pick(raw, 'procedure', 'Procedure') || '',
     firstName: pick(raw, 'f_name', 'fname', 'fName', 'FName'),
     lastName: pick(raw, 'l_name', 'lname', 'lName', 'LName'),
     middleInitial: pick(raw, 'middle_i', 'middleI', 'middlei', 'MiddleI'),
@@ -83,6 +85,15 @@ export async function listBackendPatients(search: string): Promise<BackendPatien
   const seen = new Map<number, BackendPatient>();
   [...byLast, ...byFirst].map(mapBackendPatient).forEach((p) => seen.set(p.patNum, p));
   return [...seen.values()];
+}
+
+export async function listProcedureCodes(): Promise<string[]> {
+  return (await request<string[]>('/api/procedure-codes')) ?? [];
+}
+
+export async function listPatientsByProcedure(procCode: string | null): Promise<BackendPatient[]> {
+  const query = procCode ? `?${new URLSearchParams({ procCode })}` : '';
+  return (await request<Raw[]>(`/api/patients/by-procedure${query}`)).map(mapBackendPatient);
 }
 
 export async function createBackendPatient(input: Record<string, string>): Promise<void> {

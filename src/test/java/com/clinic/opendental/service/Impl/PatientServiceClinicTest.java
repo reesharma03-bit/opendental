@@ -4,6 +4,7 @@ import com.clinic.opendental.client.OpenDentalClient;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.PatientId;
+import com.clinic.opendental.service.Impl.OdSyncService;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.repository.PatientRepository;
 import com.clinic.opendental.security.Role;
@@ -28,9 +29,11 @@ class PatientServiceClinicTest {
 
     private final PatientRepository patients = mock(PatientRepository.class);
     private final ClinicRepository clinics = mock(ClinicRepository.class);
-    private final PatientServiceImpl service = new PatientServiceImpl(mock(OpenDentalClient.class), patients, clinics, mock(OdSyncService.class));
+    private final PatientServiceImpl service = new PatientServiceImpl(mock(OpenDentalClient.class), patients, mock(com.clinic.opendental.repository.ProcedureLogRepository.class), clinics, mock(OdSyncService.class));
 
-    {
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubs() {
         when(clinics.findByIsActiveTrue()).thenReturn(List.of(SMITH, JONES));
         when(clinics.findByClinicCode("JONES")).thenReturn(Optional.of(JONES));
         when(clinics.findById(SMITH.getId())).thenReturn(Optional.of(SMITH));

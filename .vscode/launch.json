@@ -1,0 +1,70 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+    
+        {
+            "type": "java",
+            "name": "Debug - OpenDental API (Local Supabase)",
+            "request": "launch",
+            "mainClass": "com.clinic.opendental.OpenDentalApiApplication",
+            "projectName": "api",
+            "env": {
+                "SPRING_PROFILES_ACTIVE": "dev",
+                "SUPABASE_DB_URL": "jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require",
+                "SUPABASE_DB_USERNAME": "postgres.qpjofnaucxsskamuepkh",
+                "SUPABASE_DB_PASSWORD": "Postgres6623"
+            },
+            "vmArgs": "-Dspring.devtools.restart.enabled=true -Djava.net.preferIPv4Stack=true",
+            "console": "internalConsole"
+        },
+        {
+            "type": "java",
+            "name": "Debug - OpenDental API (Supabase)",
+            "request": "launch",
+            "mainClass": "com.clinic.opendental.OpenDentalApiApplication",
+            "projectName": "api",
+            "env": {
+                "SPRING_PROFILES_ACTIVE": "dev",
+                "SUPABASE_DB_URL": "jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require",
+                "SUPABASE_DB_USERNAME": "postgres.qpjofnaucxsskamuepkh",
+                "SUPABASE_DB_PASSWORD": "Postgres6623"
+            },
+            "vmArgs": "-Djava.net.preferIPv4Stack=true",
+            "console": "internalConsole"
+        },
+        {
+            "type": "java",
+            "name": "Debug - OpenDental API (Remote Supabase)",
+            "request": "launch",
+            "mainClass": "com.clinic.opendental.OpenDentalApiApplication",
+            "projectName": "api",
+            "env": {
+                "SPRING_PROFILES_ACTIVE": "dev",
+                "SUPABASE_DB_URL": "${input:supabaseDbUrl}",
+                "SUPABASE_DB_USERNAME": "${input:supabaseDbUsername}",
+                "SUPABASE_DB_PASSWORD": "${input:supabaseDbPassword}"
+            },
+            "vmArgs": "-Djava.net.preferIPv4Stack=true",
+            "console": "internalConsole"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "supabaseDbUrl",
+            "type": "promptString",
+            "description": "Supabase JDBC URL",
+            "default": "jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require"
+        },
+        {
+            "id": "supabaseDbUsername",
+            "type": "promptString",
+            "description": "Supabase DB Username",
+            "default": "postgres.qpjofnaucxsskamuepkh"
+        },
+        {
+            "id": "supabaseDbPassword",
+            "type": "promptString",
+            "description": "Supabase DB Password"
+        }
+    ]
+}

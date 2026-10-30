@@ -86,4 +86,5 @@ public class PatientResponse {
     @JsonAlias({"TxtMsgOk", "txt_msg_ok"}) private String TxtMsgOk;
     @JsonAlias({"SecUserNumEntry", "sec_user_num_entry"}) private Long SecUserNumEntry;
     @JsonAlias({"SecDateEntry", "sec_date_entry"}) private String SecDateEntry;
+    @JsonAlias({"Procedure", "procedure"}) private String Procedure;
 }

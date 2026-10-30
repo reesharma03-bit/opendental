@@ -11,8 +11,10 @@ import com.clinic.opendental.exception.ApiException;
 import com.clinic.opendental.model.Clinic;
 import com.clinic.opendental.model.Patient;
 import com.clinic.opendental.model.PatientId;
+import com.clinic.opendental.model.ProcedureLog;
 import com.clinic.opendental.repository.ClinicRepository;
 import com.clinic.opendental.repository.PatientRepository;
+import com.clinic.opendental.repository.ProcedureLogRepository;
 import com.clinic.opendental.service.PatientService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +29,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -39,6 +40,7 @@ public class PatientServiceImpl implements PatientService {
 
     private final OpenDentalClient client;
     private final PatientRepository patientRepository;
+    private final ProcedureLogRepository procedureLogRepository;
     private final ClinicRepository clinicRepository;
     private final OdSyncService odSync;
 
@@ -73,6 +75,42 @@ public class PatientServiceImpl implements PatientService {
                 .map(this::toPatientResponse)
                 .collect(Collectors.toList());
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PatientResponse> getPatientsByProcedure(String procCode) {
+        UUID clinicId = resolveClinicId();
+        List<Long> patNums;
+        if (procCode == null || procCode.isBlank()) {
+            patNums = procedureLogRepository.findByIdClinicId(clinicId).stream()
+                    .map(pl -> pl.getPatNum()).filter(java.util.Objects::nonNull).distinct().toList();
+        } else {
+            patNums = procedureLogRepository.findByIdClinicIdAndProcCodeStartingWithIgnoreCase(clinicId, procCode).stream()
+                    .map(pl -> pl.getPatNum()).filter(java.util.Objects::nonNull).distinct().toList();
+        }
+        // Batch-load procedures for the clinic and group by patNum so each patient shows their actual procedure(s).
+        Map<Long, String> procByPatNum = procedureLogRepository.findByIdClinicId(clinicId).stream()
+                .filter(pl -> pl.getPatNum() != null && pl.getProcCode() != null)
+                .collect(Collectors.groupingBy(
+                        ProcedureLog::getPatNum,
+                        Collectors.mapping(ProcedureLog::getProcCode, Collectors.joining(", "))
+                ));
+        return patientRepository.findByIdClinicId(clinicId).stream()
+                .filter(p -> patNums.contains(p.getId().getPatNum()))
+                .map(p -> {
+                    PatientResponse resp = toPatientResponse(p);
+                    resp.setProcedure(procByPatNum.getOrDefault(p.getId().getPatNum(), ""));
+                    return resp;
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> getProcedureCodes() {
+        return procedureLogRepository.findDistinctProcCodesByClinicId(resolveClinicId());
+    }
+
 
     @Override
     @Transactional(readOnly = true)

@@ -17,6 +17,13 @@ public interface ProcedureLogRepository extends JpaRepository<ProcedureLog, Proc
 
     List<ProcedureLog> findByIdClinicIdAndIdProcNum(UUID clinicId, Long procNum);
 
+    /** Distinct procedure codes (procCode) recorded for a clinic. */
+    @Query("select distinct pl.procCode from ProcedureLog pl where pl.id.clinicId = :clinicId and pl.procCode is not null")
+    List<String> findDistinctProcCodesByClinicId(@Param("clinicId") UUID clinicId);
+
+    /** Procedure logs for a clinic matching a procedure code (exact or prefix). */
+    List<ProcedureLog> findByIdClinicIdAndProcCodeStartingWithIgnoreCase(UUID clinicId, String procCode);
+
     List<ProcedureLog> findByIdClinicId(UUID clinicId);
 
     List<ProcedureLog> findByAptNum(Long aptNum);

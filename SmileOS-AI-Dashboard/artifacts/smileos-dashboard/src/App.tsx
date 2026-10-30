@@ -19,6 +19,7 @@ import UserodsScreen from './UserodsScreen';
 import AllergyDefinitionsScreen from './AllergyDefinitionsScreen';
 import DiseaseDefinitionsScreen from './DiseaseDefinitionsScreen';
 import PatientsScreen from './PatientsScreen';
+import PatientsByProcedureScreen from './PatientsByProcedureScreen';
 import SubscriptionScreen from './SubscriptionScreen';
 import DatabaseResourceScreen from './DatabaseResourceScreen';
 import HomeDashboard from './HomeDashboard';
@@ -44,6 +45,7 @@ import { apiNavigationGroups, formatApiResourceName } from './apiNavigation';
 const navItems: { label: string; icon: typeof Users; badge?: string; permission?: Permission }[] = [
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Patients', icon: Users, permission: 'PATIENTS_READ' },
+  { label: 'Patient Workspace', icon: Users, permission: 'PATIENTS_READ' },
   { label: 'Appointments', icon: CalendarDays, permission: 'APPOINTMENTS_READ' },
   { label: 'Open Dental', icon: PlugZap, permission: 'CLINIC_CONNECT' },
   { label: 'Subscription', icon: BellRing, permission: 'CLINIC_CONNECT' },
@@ -324,6 +326,7 @@ function App() {
           />
         )}
         {activeNav === 'Patients' && can('PATIENTS_READ') && <PatientsScreen search={search} onSearchChange={setSearch} announce={announce} createRequest={createPatientRequest} onCreateRequestHandled={clearPatientCreateRequest} />}
+        {activeNav === 'Patient Workspace' && can('PATIENTS_READ') && <PatientsByProcedureScreen />}
         {!noClinic && activeNav === 'Subscription' && can('CLINIC_CONNECT') && <SubscriptionScreen />}
         {activeNav === 'Users' && can('USERS_MANAGE') && <UsersScreen />}
         {!noClinic && activeNav === 'Sync settings' && can('CLINIC_CONNECT') && <SyncSettingsScreen />}
